@@ -977,7 +977,7 @@
       <span class="nav-logo-text">Irish Vocab Learner</span>
     </a>
     <div class="nav-right">
-      <div id="nav-user-info">Signed in as <span id="nav-email"></span></div>
+      <div id="nav-user-info">Signed in as: <span id="nav-email"> </span></div>
       <button id="nav-logout-btn" class="btn btn-outline btn-sm" style="display:none">Sign out</button>
       <a href="https://chromewebstore.google.com" target="_blank" class="btn btn-primary btn-sm">Get the Extension ↗</a>
     </div>
@@ -1342,9 +1342,83 @@
     }
 
     function signOut() {
+      stopPolling();
       clearSession();
       showLoggedOut();
       toast('Signed out successfully.');
+    }
+
+    let pollingIntervalId = null;
+
+    async function checkRemoteUpdates(session) {
+      try {
+        const headers = { 
+          'apikey': SUPABASE_ANON_KEY, 
+          'Authorization': `Bearer ${session.access_token}` 
+        };
+
+        const tPromise = fetch(`${SUPABASE_URL}/rest/v1/flashcards?select=timestamp&order=timestamp.desc&limit=1`, { headers })
+          .then(r => r.ok ? r.json() : []);
+
+        const lPromise = fetch(`${SUPABASE_URL}/rest/v1/flashcards?select=learning_timestamp&order=learning_timestamp.desc&limit=1`, { headers })
+          .then(r => r.ok ? r.json() : []);
+
+        const mOrder = encodeURIComponent("senses->0->>modified_at.desc");
+        const mPromise = fetch(`${SUPABASE_URL}/rest/v1/flashcards?select=senses&order=${mOrder}&limit=1`, { headers })
+          .then(r => r.ok ? r.json() : []);
+
+        const [tResult, lResult, mResult] = await Promise.all([tPromise, lPromise, mPromise]);
+        
+        const remoteMaxT = tResult && tResult[0] ? normalizeTimestamp(tResult[0].timestamp) : 0;
+        const remoteMaxL = lResult && lResult[0] ? normalizeTimestamp(lResult[0].learning_timestamp) : 0;
+        const remoteMaxM = mResult && mResult[0] && mResult[0].senses && mResult[0].senses[0] && mResult[0].senses[0].modified_at 
+            ? Number(mResult[0].senses[0].modified_at) 
+            : 0;
+
+        return Math.max(remoteMaxT, remoteMaxL, remoteMaxM);
+      } catch (err) {
+        console.error('Error checking remote updates:', err);
+        return 0;
+      }
+    }
+
+    function startPolling(session) {
+      if (pollingIntervalId) clearInterval(pollingIntervalId);
+      
+      pollingIntervalId = setInterval(async () => {
+        if (!activeSession || document.hidden) return;
+        
+        const validSession = await getValidSession();
+        if (!validSession) {
+          signOut();
+          return;
+        }
+        
+        try {
+          const remoteMax = await checkRemoteUpdates(validSession);
+          const localMax = allWords.reduce((max, w) => {
+            const t = normalizeTimestamp(w.timestamp);
+            const l = normalizeTimestamp(w.learning_timestamp || w.learningTimestamp || w.timestamp);
+            const m = (w.senses && w.senses[0] && w.senses[0].modified_at) ? Number(w.senses[0].modified_at) : 0;
+            return Math.max(max, t, l, m);
+          }, 0);
+
+          if (remoteMax > localMax) {
+            console.log("Polling: Remote updates found. Reloading word list.");
+            await loadWords(validSession);
+            toast("Vocabulary updated from the cloud.", "success");
+          }
+        } catch (err) {
+          console.error("Polling check failed:", err);
+        }
+      }, 30000); // Poll every 30 seconds
+    }
+
+    function stopPolling() {
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+        pollingIntervalId = null;
+      }
     }
 
     // ───────────────────────────────────────────────
@@ -1663,7 +1737,7 @@
                 <button class="sr-review-expand-btn">▼</button>
               </div>
             </div>
-            <div class="sr-review-item-body">
+            <div class="sr-review-item-body" style="display:none">
               <div class="sr-review-item-details">
                 ${sensesHtml}
                 <div class="sr-review-meta">First learned: ${learned} | Current Level: ${w.srStep || w.sr_step || 0}/5</div>
@@ -1672,16 +1746,17 @@
           </div>`;
       }).join('');
 
-      // Accordion expand logic — toggle parent `.expanded` so CSS handles the reveal
+      // Accordion expand logic
       listEl.querySelectorAll('.sr-review-item-header').forEach(header => {
         header.addEventListener('click', (e) => {
           if (e.target.closest('.sr-ack-btn')) return; // ignore clicks on ack button
           const item = header.closest('.sr-review-item');
           if (!item) return;
-          const isExpanded = item.classList.contains('expanded');
+          const body = item.querySelector('.sr-review-item-body');
+          const isShown = body && body.style.display !== 'none';
           // collapse others
-          listEl.querySelectorAll('.sr-review-item.expanded').forEach(it => it.classList.remove('expanded'));
-          if (!isExpanded) item.classList.add('expanded');
+          listEl.querySelectorAll('.sr-review-item .sr-review-item-body').forEach(b => b.style.display = 'none');
+          if (!isShown && body) body.style.display = 'block';
         });
       });
 
@@ -1779,11 +1854,23 @@
           const chosen = transEl.dataset.trans || transEl.textContent;
           word.primary_translation = chosen;
           word.primaryTranslation = chosen;
+          if (word.senses && word.senses.length > 0) {
+            word.senses[0].modified_at = Date.now();
+          }
           // Re-render card to show updated primary translation
           renderCard(index);
           // flip to show back (translation)
           const currentCard = container.querySelector('.flashcard');
           if (currentCard && !currentCard.classList.contains('flipped')) currentCard.classList.add('flipped');
+          
+          // Save to Supabase and update word grid
+          syncWordProgress(word).then(() => {
+            renderWordGrid(allWords);
+            toast('Primary translation updated and synced!', 'success');
+          }).catch(err => {
+            console.error('Failed to sync translation update:', err);
+            toast('Could not sync translation update to cloud.', 'error');
+          });
           return;
         }
 
@@ -1852,6 +1939,7 @@
         if (session) {
           toast('Signed in! Loading your words…', 'success');
           showLoggedIn(session);
+          startPolling(session);
         } else {
           showLoggedOut();
         }
@@ -1862,6 +1950,7 @@
       const session = await getValidSession();
       if (session) {
         showLoggedIn(session);
+        startPolling(session);
       } else {
         showLoggedOut();
       }
