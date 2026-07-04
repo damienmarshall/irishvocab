@@ -1581,25 +1581,64 @@
       }
 
       statusEl.textContent = `${dueWords.length} word${dueWords.length === 1 ? '' : 's'} ready for review.`;
-      listEl.innerHTML = dueWords.map(word => {
-        const step = Number(word.srStep ?? word.sr_step ?? 0) + 1;
+
+      // Build expanded review items similar to dashboard SR modal
+      listEl.innerHTML = dueWords.map((w, idx) => {
+        const stepNum = (w.srStep || w.sr_step || 0) + 1;
+        const sensesHtml = (w.senses || []).map(s => {
+          return `
+            <div class="sr-review-sense">
+              ${s.definition && s.definition.toLowerCase() !== 'general' ? `<div class="sr-review-def">${escHtml(s.definition)}</div>` : ''}
+              <div class="sr-review-trans">${(s.translations || []).map(t => escHtml(t)).join(', ')}</div>
+            </div>`;
+        }).join('');
+
+        const learned = new Date(w.learningTimestamp || w.learning_timestamp || w.timestamp).toLocaleDateString();
+
         return `
-          <div class="spaced-rep-item">
-            <div>
-              <strong>${escHtml(word.word)}</strong>
-              <small>Interval ${step}</small>
+          <div class="sr-review-item" data-word="${escHtml(w.word)}" id="sr-item-${idx}">
+            <div class="sr-review-item-header">
+              <div class="sr-review-word-info">
+                <h4>${escHtml(w.word)}</h4>
+                <span class="sr-stage-tag">Interval ${stepNum}</span>
+              </div>
+              <div class="sr-review-actions">
+                <button class="sr-ack-btn" data-word="${escHtml(w.word)}">Acknowledge ✓</button>
+                <button class="sr-review-expand-btn">▼</button>
+              </div>
             </div>
-            <button class="spaced-rep-btn" data-word="${escHtml(word.word)}">Acknowledge</button>
-          </div>
-        `;
+            <div class="sr-review-item-body" style="display:none">
+              <div class="sr-review-item-details">
+                ${sensesHtml}
+                <div class="sr-review-meta">First learned: ${learned} | Current Level: ${w.srStep || w.sr_step || 0}/5</div>
+              </div>
+            </div>
+          </div>`;
       }).join('');
 
-      listEl.querySelectorAll('.spaced-rep-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
+      // Accordion expand logic
+      listEl.querySelectorAll('.sr-review-item-header').forEach(header => {
+        header.addEventListener('click', (e) => {
+          if (e.target.closest('.sr-ack-btn')) return; // ignore clicks on ack button
+          const item = header.closest('.sr-review-item');
+          if (!item) return;
+          const body = item.querySelector('.sr-review-item-body');
+          const isShown = body && body.style.display !== 'none';
+          // collapse others
+          listEl.querySelectorAll('.sr-review-item .sr-review-item-body').forEach(b => b.style.display = 'none');
+          if (!isShown && body) body.style.display = 'block';
+        });
+      });
+
+      // Acknowledge logic
+      listEl.querySelectorAll('.sr-ack-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
           const wordText = btn.dataset.word;
           const word = allWords.find(item => item.word.toLowerCase() === wordText.toLowerCase());
           if (!word) return;
 
+          // update local SR state and queue
           word.srStep = Math.min(5, Number(word.srStep ?? word.sr_step ?? 0) + 1);
           word.sr_step = word.srStep;
           word.learningTimestamp = Date.now();
@@ -1613,20 +1652,25 @@
             pendingReviewUpdates.push({ ...word });
           }
 
-          const remainingDue = getDueWords(allWords);
-          if (remainingDue.length === 0 && pendingReviewUpdates.length > 0) {
-            try {
-              await syncPendingReviewUpdates();
-              toast(`Finished your review and synced ${pendingReviewUpdates.length} card${pendingReviewUpdates.length === 1 ? '' : 's'}.`, 'success');
-            } catch (err) {
-              console.error('spaced repetition sync failed:', err);
-              toast('Could not sync your review progress.', 'error');
-            }
-          } else {
-            toast(`Marked “${word.word}” as reviewed.`, 'success');
+          // Visually remove item
+          const itemEl = btn.closest('.sr-review-item');
+          if (itemEl) {
+            itemEl.classList.add('fade-out');
+            setTimeout(() => {
+              // re-render panel with updated due list
+              renderSpacedRepPanel();
+              // if no more due words, sync pending updates
+              const remaining = getDueWords(allWords);
+              if (remaining.length === 0 && pendingReviewUpdates.length > 0) {
+                syncPendingReviewUpdates().then(() => {
+                  toast(`Finished your review and synced ${pendingReviewUpdates.length} card${pendingReviewUpdates.length === 1 ? '' : 's'}.`, 'success');
+                }).catch(err => {
+                  console.error('spaced repetition sync failed:', err);
+                  toast('Could not sync your review progress.', 'error');
+                });
+              }
+            }, 300);
           }
-
-          renderSpacedRepPanel();
         });
       });
     }
@@ -1657,7 +1701,7 @@
       let sensesHtml = '';
       for (const sense of senses.slice(0, 3)) {
         const chips = (sense.translations || []).slice(0, 4)
-          .map(t => `<span class="trans-chip">${escHtml(t)}</span>`).join('');
+          .map(t => `<span class="trans-chip clickable-translation" data-trans="${escHtml(t)}">${escHtml(t)}</span>`).join('');
         sensesHtml += `
       <div style="margin-bottom:0.5rem">
         ${sense.definition ? `<div class="card-back-def">${escHtml(sense.definition)}</div>` : ''}
@@ -1672,7 +1716,29 @@
 
       card.appendChild(front);
       card.appendChild(back);
-      card.addEventListener('click', () => card.classList.toggle('flipped'));
+      card.addEventListener('click', function (e) {
+        // If user clicked on a translation chip, set it as primary
+        const transEl = e.target.closest && e.target.closest('.clickable-translation');
+        if (transEl) {
+          e.stopPropagation();
+          const chosen = transEl.dataset.trans || transEl.textContent;
+          word.primary_translation = chosen;
+          word.primaryTranslation = chosen;
+          // Re-render card to show updated primary translation
+          renderCard(index);
+          // flip to show back (translation)
+          const currentCard = container.querySelector('.flashcard');
+          if (currentCard && !currentCard.classList.contains('flipped')) currentCard.classList.add('flipped');
+          return;
+        }
+
+        // Avoid flipping when interacting with links or inputs inside the card
+        if (e.target.closest && (e.target.closest('.card-back a') || e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON')) {
+          return;
+        }
+
+        this.classList.toggle('flipped');
+      });
 
       container.appendChild(card);
       document.getElementById('card-counter').textContent = `${index + 1} / ${allWords.length}`;
@@ -1701,6 +1767,11 @@
           renderCard(currentIndex);
           updateNavButtons();
           document.getElementById('viewer-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // Auto-reveal the translation when selecting from the grid to match dashboard behavior
+          setTimeout(() => {
+            const fc = document.querySelector('.flashcard');
+            if (fc && !fc.classList.contains('flipped')) fc.classList.add('flipped');
+          }, 60);
         });
         grid.appendChild(chip);
       });
