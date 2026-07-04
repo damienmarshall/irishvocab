@@ -475,32 +475,81 @@
     }
 
     /* Stats bar */
-    .stats-bar {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 1rem;
-      margin-bottom: 2.5rem;
-    }
-
-    .stat-tile {
+    .spaced-rep-panel {
       background: var(--card-bg);
-      border-radius: 18px;
-      padding: 1.2rem 1rem;
-      text-align: center;
+      border-radius: 20px;
+      padding: 1.2rem 1.3rem;
       box-shadow: var(--shadow);
       border: 1px solid rgba(255, 255, 255, 0.6);
+      margin-bottom: 1.5rem;
     }
 
-    .stat-num {
-      font-size: 2rem;
+    .spaced-rep-panel h3 {
+      font-size: 1rem;
       font-weight: 700;
       color: var(--primary);
+      margin-bottom: 0.2rem;
     }
 
-    .stat-label {
-      font-size: 0.75rem;
+    .spaced-rep-panel p {
+      font-size: 0.84rem;
       color: var(--text-muted);
-      margin-top: 0.15rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .spaced-rep-status {
+      font-size: 0.92rem;
+      color: var(--text-main);
+      margin-bottom: 0.8rem;
+    }
+
+    .spaced-rep-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .spaced-rep-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.8rem;
+      background: rgba(0, 154, 68, 0.06);
+      border: 1px solid rgba(0, 154, 68, 0.12);
+      border-radius: 14px;
+      padding: 0.8rem 0.95rem;
+    }
+
+    .spaced-rep-item strong {
+      display: block;
+      color: var(--text-main);
+      margin-bottom: 0.15rem;
+    }
+
+    .spaced-rep-item small {
+      color: var(--text-muted);
+      font-size: 0.77rem;
+    }
+
+    .spaced-rep-btn {
+      border: none;
+      border-radius: 999px;
+      padding: 0.45rem 0.85rem;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--primary);
+      color: white;
+    }
+
+    .spaced-rep-btn:hover {
+      background: var(--primary-dark);
+    }
+
+    .spaced-rep-empty {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      padding: 0.5rem 0;
     }
 
     /* Flashcard viewer */
@@ -980,20 +1029,13 @@
       <div id="custom-card-status" class="custom-card-status" role="status" aria-live="polite"></div>
     </div>
 
-    <!-- Stats -->
-    <div class="stats-bar">
-      <div class="stat-tile">
-        <div class="stat-num" id="stat-total">—</div>
-        <div class="stat-label">Words saved</div>
+    <div class="spaced-rep-panel" id="spaced-rep-panel">
+      <div class="custom-card-header">
+        <h3>Spaced repetition</h3>
+        <p>Review the words that are due and keep your progress synced.</p>
       </div>
-      <div class="stat-tile">
-        <div class="stat-num" id="stat-this-week">—</div>
-        <div class="stat-label">This week</div>
-      </div>
-      <div class="stat-tile">
-        <div class="stat-num" id="stat-streak">—</div>
-        <div class="stat-label">Day streak</div>
-      </div>
+      <div id="spaced-rep-status" class="spaced-rep-status">Loading review queue…</div>
+      <div id="spaced-rep-list" class="spaced-rep-list"></div>
     </div>
 
     <!-- Flashcard viewer -->
@@ -1265,7 +1307,14 @@
       return rows.map(word => ({
         ...word,
         timestamp: normalizeTimestamp(word.timestamp),
-        learning_timestamp: normalizeTimestamp(word.learning_timestamp || word.timestamp),
+        learning_timestamp: normalizeTimestamp(word.learning_timestamp || word.learningTimestamp || word.timestamp),
+        learningTimestamp: normalizeTimestamp(word.learning_timestamp || word.learningTimestamp || word.timestamp),
+        srStep: Number(word.sr_step ?? word.srStep ?? 0),
+        sr_step: Number(word.sr_step ?? word.srStep ?? 0),
+        primaryTranslation: word.primary_translation || word.primaryTranslation || null,
+        primary_translation: word.primary_translation || word.primaryTranslation || null,
+        tags: Array.isArray(word.tags) ? word.tags : [],
+        senses: Array.isArray(word.senses) ? word.senses : [],
       }));
     }
 
@@ -1290,6 +1339,7 @@
     let allWords = [];
     let currentIndex = 0;
     let activeSession = null;
+    let pendingReviewUpdates = [];
 
     function setCustomCardStatus(message, isError = false) {
       const statusEl = document.getElementById('custom-card-status');
@@ -1313,6 +1363,8 @@
       document.getElementById('nav-logout-btn').style.display = 'inline-flex';
       document.getElementById('nav-email').textContent = session.email || 'you';
       activeSession = session;
+
+      console.log(session)
 
       const first = session.fullname?.split('@')[0] || 'there';
       document.getElementById('dash-greeting').textContent = `Dia duit, ${first}! 🍀`;
@@ -1340,6 +1392,7 @@
       document.getElementById('dash-sub').textContent = `${allWords.length} word${allWords.length !== 1 ? 's' : ''} saved`;
 
       updateStats(allWords);
+      renderSpacedRepPanel();
       renderWordGrid(allWords);
 
       if (allWords.length === 0) {
@@ -1410,13 +1463,16 @@
     }
 
     function updateStats(words) {
-      document.getElementById('stat-total').textContent = words.length;
+      const totalEl = document.getElementById('stat-total');
+      const thisWeekEl = document.getElementById('stat-this-week');
+      const streakEl = document.getElementById('stat-streak');
+
+      if (totalEl) totalEl.textContent = words.length;
 
       const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const thisWeek = words.filter(w => parseInt(w.timestamp) > oneWeekAgo).length;
-      document.getElementById('stat-this-week').textContent = thisWeek;
+      if (thisWeekEl) thisWeekEl.textContent = thisWeek;
 
-      // Simple streak: count consecutive days backwards that have at least 1 word
       const days = new Set(words.map(w => {
         const d = new Date(parseInt(w.timestamp));
         return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -1430,7 +1486,149 @@
         if (days.has(key)) streak++;
         else break;
       }
-      document.getElementById('stat-streak').textContent = streak;
+      if (streakEl) streakEl.textContent = streak;
+    }
+
+    const SR_INTERVALS = [
+      1 * 24 * 60 * 60 * 1000,
+      3 * 24 * 60 * 60 * 1000,
+      7 * 24 * 60 * 60 * 1000,
+      14 * 24 * 60 * 60 * 1000,
+      30 * 24 * 60 * 60 * 1000,
+    ];
+
+    function getDueWords(wordsList) {
+      const now = Date.now();
+      return wordsList.filter(word => {
+        const step = Number(word.srStep ?? word.sr_step ?? 0);
+        if (step >= 5) return false;
+        const learningTime = normalizeTimestamp(word.learningTimestamp || word.learning_timestamp || word.timestamp);
+        const dueTime = learningTime + SR_INTERVALS[step];
+        return now >= dueTime;
+      });
+    }
+
+    async function syncWordProgress(word) {
+      if (!activeSession || !activeSession.access_token) return;
+
+      const payload = {
+        user_id: activeSession.user_id,
+        word: word.word,
+        senses: Array.isArray(word.senses) ? word.senses : [],
+        timestamp: normalizeTimestamp(word.timestamp),
+        url: word.url || '',
+        tags: Array.isArray(word.tags) ? word.tags : [],
+        sr_step: Number(word.srStep ?? word.sr_step ?? 0),
+        learning_timestamp: normalizeTimestamp(word.learningTimestamp || word.learning_timestamp || word.timestamp),
+        primary_translation: word.primaryTranslation || word.primary_translation || null,
+      };
+
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${activeSession.access_token}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify([payload]),
+      });
+
+      if (!resp.ok) throw new Error(await resp.text());
+    }
+
+    async function syncPendingReviewUpdates() {
+      if (!pendingReviewUpdates.length || !activeSession || !activeSession.access_token) return;
+
+      const payload = pendingReviewUpdates.map(word => ({
+        user_id: activeSession.user_id,
+        word: word.word,
+        senses: Array.isArray(word.senses) ? word.senses : [],
+        timestamp: normalizeTimestamp(word.timestamp),
+        url: word.url || '',
+        tags: Array.isArray(word.tags) ? word.tags : [],
+        sr_step: Number(word.srStep ?? word.sr_step ?? 0),
+        learning_timestamp: normalizeTimestamp(word.learningTimestamp || word.learning_timestamp || word.timestamp),
+        primary_translation: word.primaryTranslation || word.primary_translation || null,
+      }));
+
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${activeSession.access_token}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) throw new Error(await resp.text());
+      pendingReviewUpdates = [];
+    }
+
+    function renderSpacedRepPanel() {
+      const panel = document.getElementById('spaced-rep-panel');
+      const statusEl = document.getElementById('spaced-rep-status');
+      const listEl = document.getElementById('spaced-rep-list');
+      if (!panel || !statusEl || !listEl) return;
+
+      const dueWords = getDueWords(allWords);
+      if (dueWords.length === 0) {
+        statusEl.textContent = 'All caught up — no words are due for review right now.';
+        listEl.innerHTML = '<div class="spaced-rep-empty">Great work. Come back later for your next review round.</div>';
+        return;
+      }
+
+      statusEl.textContent = `${dueWords.length} word${dueWords.length === 1 ? '' : 's'} ready for review.`;
+      listEl.innerHTML = dueWords.map(word => {
+        const step = Number(word.srStep ?? word.sr_step ?? 0) + 1;
+        return `
+          <div class="spaced-rep-item">
+            <div>
+              <strong>${escHtml(word.word)}</strong>
+              <small>Interval ${step}</small>
+            </div>
+            <button class="spaced-rep-btn" data-word="${escHtml(word.word)}">Acknowledge</button>
+          </div>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('.spaced-rep-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const wordText = btn.dataset.word;
+          const word = allWords.find(item => item.word.toLowerCase() === wordText.toLowerCase());
+          if (!word) return;
+
+          word.srStep = Math.min(5, Number(word.srStep ?? word.sr_step ?? 0) + 1);
+          word.sr_step = word.srStep;
+          word.learningTimestamp = Date.now();
+          word.learning_timestamp = word.learningTimestamp;
+
+          const existing = pendingReviewUpdates.find(item => item.word.toLowerCase() === word.word.toLowerCase());
+          if (existing) {
+            existing.srStep = word.srStep;
+            existing.learningTimestamp = word.learningTimestamp;
+          } else {
+            pendingReviewUpdates.push({ ...word });
+          }
+
+          const remainingDue = getDueWords(allWords);
+          if (remainingDue.length === 0 && pendingReviewUpdates.length > 0) {
+            try {
+              await syncPendingReviewUpdates();
+              toast(`Finished your review and synced ${pendingReviewUpdates.length} card${pendingReviewUpdates.length === 1 ? '' : 's'}.`, 'success');
+            } catch (err) {
+              console.error('spaced repetition sync failed:', err);
+              toast('Could not sync your review progress.', 'error');
+            }
+          } else {
+            toast(`Marked “${word.word}” as reviewed.`, 'success');
+          }
+
+          renderSpacedRepPanel();
+        });
+      });
     }
 
     function renderCard(index) {
