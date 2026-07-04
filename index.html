@@ -1663,7 +1663,7 @@
                 <button class="sr-review-expand-btn">▼</button>
               </div>
             </div>
-            <div class="sr-review-item-body" style="display:none">
+            <div class="sr-review-item-body">
               <div class="sr-review-item-details">
                 ${sensesHtml}
                 <div class="sr-review-meta">First learned: ${learned} | Current Level: ${w.srStep || w.sr_step || 0}/5</div>
@@ -1672,17 +1672,16 @@
           </div>`;
       }).join('');
 
-      // Accordion expand logic
+      // Accordion expand logic — toggle parent `.expanded` so CSS handles the reveal
       listEl.querySelectorAll('.sr-review-item-header').forEach(header => {
         header.addEventListener('click', (e) => {
           if (e.target.closest('.sr-ack-btn')) return; // ignore clicks on ack button
           const item = header.closest('.sr-review-item');
           if (!item) return;
-          const body = item.querySelector('.sr-review-item-body');
-          const isShown = body && body.style.display !== 'none';
+          const isExpanded = item.classList.contains('expanded');
           // collapse others
-          listEl.querySelectorAll('.sr-review-item .sr-review-item-body').forEach(b => b.style.display = 'none');
-          if (!isShown && body) body.style.display = 'block';
+          listEl.querySelectorAll('.sr-review-item.expanded').forEach(it => it.classList.remove('expanded'));
+          if (!isExpanded) item.classList.add('expanded');
         });
       });
 
