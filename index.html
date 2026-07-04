@@ -1066,6 +1066,20 @@
       el.className = type;
     }
 
+    function normalizeTimestamp(value, fallback = Date.now()) {
+      if (value === null || value === undefined || value === '') return fallback;
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return fallback;
+        const numeric = Number(trimmed);
+        if (Number.isFinite(numeric)) return numeric;
+        const parsed = Date.parse(trimmed);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return fallback;
+    }
+
     // ───────────────────────────────────────────────
     // PKCE HELPERS
     // ───────────────────────────────────────────────
@@ -1085,15 +1099,49 @@
     // ───────────────────────────────────────────────
     // SESSION STORAGE (localStorage)
     // ───────────────────────────────────────────────
+    function setCookie(name, value, days = 30) {
+      try {
+        const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
+        document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires}; SameSite=Lax`;
+      } catch (e) {}
+    }
+
+    function getCookie(name) {
+      try {
+        const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function clearCookie(name) {
+      try {
+        document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+      } catch (e) {}
+    }
+
     function saveSession(session) {
-      localStorage.setItem('sb_session', JSON.stringify(session));
+      const sessionJson = JSON.stringify(session);
+      localStorage.setItem('sb_session', sessionJson);
+      setCookie('sb_session', sessionJson, 30);
     }
     function loadSession() {
-      try { return JSON.parse(localStorage.getItem('sb_session')); } catch { return null; }
+      try {
+        const fromStorage = localStorage.getItem('sb_session');
+        if (fromStorage) return JSON.parse(fromStorage);
+      } catch { }
+      try {
+        const fromCookie = getCookie('sb_session');
+        if (fromCookie) return JSON.parse(fromCookie);
+      } catch { }
+      return null;
     }
     function clearSession() {
       localStorage.removeItem('sb_session');
       localStorage.removeItem('sb_pkce_verifier');
+      clearCookie('sb_session');
+      clearCookie('sb_pkce_verifier');
     }
 
     // ───────────────────────────────────────────────
@@ -1213,7 +1261,12 @@
         },
       });
       if (!resp.ok) throw new Error(await resp.text());
-      return resp.json();
+      const rows = await resp.json();
+      return rows.map(word => ({
+        ...word,
+        timestamp: normalizeTimestamp(word.timestamp),
+        learning_timestamp: normalizeTimestamp(word.learning_timestamp || word.timestamp),
+      }));
     }
 
     // ───────────────────────────────────────────────
@@ -1328,6 +1381,7 @@
           word: irishWord,
           senses: [{ definition: englishWord, translations: [irishWord] }],
           timestamp: Date.now(),
+          learning_timestamp: Date.now(),
           url: focloirUrl,
           primary_translation: englishWord
         }];
