@@ -1373,12 +1373,15 @@
     <div
       style="background:white; border-radius:20px; padding:2rem; max-width:440px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.2); font-family:inherit;">
       <h2 style="margin:0 0 1rem; font-size:1.3rem; color:#2c3e50;">A note about syncing 🔄</h2>
-      <p style="color:#555; line-height:1.6; margin:0 0 0.8rem;">Syncing uses a database hosted by
+      <p style="color:#555; line-height:1.6; margin:0 0 0.8rem;">You can sync across devices using your Google account
+        and bring your words on the go with the extension and mobile site! Syncing uses a database hosted by
         <strong>Supabase</strong>, so when you login with Google you'll see a reference to Supabase &mdash; which is
-        perfectly fine!</p>
+        perfectly fine!
+      </p>
       <p style="color:#555; line-height:1.6; margin:0 0 0.8rem;">Future versions will have a proper domain setup.</p>
       <p style="color:#555; line-height:1.6; margin:0 0 1.5rem;">Click <strong>Continue</strong> to sync, or
-        <strong>Cancel</strong> to remain running locally.</p>
+        <strong>Cancel</strong> to remain running locally.
+      </p>
       <div style="display:flex; gap:0.75rem; justify-content:flex-end;">
         <button id="disclaimer-cancel-btn"
           style="padding:0.6rem 1.2rem; border:1px solid rgba(0,0,0,0.15); background:white; border-radius:50px; font-family:inherit; font-weight:600; cursor:pointer;">Cancel</button>
@@ -1781,7 +1784,7 @@
       console.log(session)
 
       const first = session.fullname?.split('@')[0] || 'there';
-      document.getElementById('dash-greeting').textContent = `Dia duit, ${first}! 🍀`;
+      document.getElementById('dash-greeting').textContent = `Fáilte ar ais! 🍀`;
 
       loadWords(session);
     }
