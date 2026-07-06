@@ -8,7 +8,6 @@
   <meta name="description"
     content="Sync and review your Irish vocabulary flashcards saved from focloir.ie. Sign in with Google to access your words across all your devices.">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
-  
   <style>
     /* ── Design Tokens ── */
     :root {
@@ -1124,6 +1123,7 @@
       font-size: 0.9rem;
       color: var(--text-muted);
       cursor: pointer;
+      transition: transform 0.2s;
       width: 24px;
       height: 24px;
       display: flex;
@@ -1131,15 +1131,21 @@
       justify-content: center;
     }
 
+    .sr-review-item.expanded .sr-review-expand-btn {
+      transform: rotate(180deg);
+    }
+
     .sr-review-item-body {
       max-height: 0;
       overflow: hidden;
-      transition: max-height 0.3s;
+      transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       background: #fafcfb;
+      border-top: 0px solid rgba(0, 154, 68, 0.05);
     }
 
     .sr-review-item.expanded .sr-review-item-body {
       max-height: 300px;
+      border-top-width: 1px;
     }
 
     .sr-review-item-details {
@@ -1217,15 +1223,16 @@
 
   <!-- ── Hero ── -->
   <section id="section-hero">
-    <div class="hero-badge">Duolingo-oh-no!</div>
-    <h1 class="hero-title">Your Irish vocab,<br><span class="highlight">everywhere you go.</span></h1>
-    <p class="hero-sub">Easily store words you <span class="highlight">actually</span> use from focloir.ie with the Chrome extension, then review your flashcards here on any
-      device. Sync is automatic between devices!</p>
+    <div class="hero-badge">🍀 Irish Language Learning</div>
+    <h1 class="hero-title">Your Irish vocabulary,<br><span class="highlight">everywhere you go.</span></h1>
+    <p class="hero-sub">Save words from focloir.ie with the Chrome extension, then review your flashcards here on any
+      device. Sync is automatic.</p>
     <div class="hero-actions">
-      <a href="https://chromewebstore.google.com/detail/irish-learner/jfegikdmlgpgodjbfcdfhfoefabpjjem" target="_blank" class="btn btn-outline">Get the extension ↗</a>
       <button id="hero-signin-btn" class="btn btn-primary">Sign in with Google</button>
       <a href="https://www.focloir.ie" target="_blank" class="btn btn-outline">Visit focloir.ie ↗</a>
     </div>
+    <p class="hero-note">Free forever · No password needed</p>
+
     <div class="hero-card-preview">
       <div class="preview-def">Irish</div>
       <div class="preview-word">Geimhreadh</div>
@@ -1246,13 +1253,18 @@
       <div class="feature-card">
         <div class="feature-icon">🔄</div>
         <h3>Cross-device Sync</h3>
-        <p>Your flashcards live securely in the cloud. Open this page on your phone or tablet to review on the go.</p>
+        <p>Your flashcards live in the cloud. Open this page on your phone or tablet to review on the go.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🧠</div>
         <h3>Spaced Repetition</h3>
         <p>The extension tracks your learning progress and surfaces words at the right time to commit them to memory.
         </p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Yours alone</h3>
+        <p>Words are tied to your Google account with row-level security. Nobody else can see your vocabulary.</p>
       </div>
     </div>
   </section>
@@ -2019,7 +2031,7 @@
                 <button class="sr-review-expand-btn">▼</button>
               </div>
             </div>
-            <div class="sr-review-item-body" style="display:none">
+            <div class="sr-review-item-body">
               <div class="sr-review-item-details">
                 ${sensesHtml}
                 <div class="sr-review-meta">First learned: ${learned} | Current Level: ${w.srStep || w.sr_step || 0}/5</div>
@@ -2033,12 +2045,13 @@
         header.addEventListener('click', (e) => {
           if (e.target.closest('.sr-ack-btn')) return; // ignore clicks on ack button
           const item = header.closest('.sr-review-item');
-          if (!item) return;
-          const body = item.querySelector('.sr-review-item-body');
-          const isShown = body && body.style.display !== 'none';
-          // collapse others
-          listEl.querySelectorAll('.sr-review-item .sr-review-item-body').forEach(b => b.style.display = 'none');
-          if (!isShown && body) body.style.display = 'block';
+          if (item) {
+            const wasExpanded = item.classList.contains('expanded');
+            listEl.querySelectorAll('.sr-review-item').forEach(el => el.classList.remove('expanded'));
+            if (!wasExpanded) {
+              item.classList.add('expanded');
+            }
+          }
         });
       });
 
