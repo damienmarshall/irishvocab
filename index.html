@@ -2686,38 +2686,47 @@ function getDueWords(wordsList) {
         const nextBtn = document.getElementById('packs-next-btn');
         if (!gridEl) return;
 
-        const packEntries = Object.entries(vocabPacks);
-        const totalPages = Math.max(1, Math.ceil(packEntries.length / PACKS_PER_PAGE));
+        const themes = Object.keys(vocabPacks);
+        const totalPages = Math.max(1, themes.length);
         currentPacksPage = Math.min(currentPacksPage, totalPages - 1);
 
-        if (indicatorEl) indicatorEl.textContent = `${currentPacksPage + 1} / ${totalPages}`;
+        const activeTheme = themes[currentPacksPage] || '';
+
+        if (indicatorEl) {
+            if (activeTheme) {
+                indicatorEl.textContent = `${activeTheme} (${currentPacksPage + 1} / ${totalPages})`;
+                indicatorEl.style.minWidth = '140px';
+            } else {
+                indicatorEl.textContent = `${currentPacksPage + 1} / ${totalPages}`;
+            }
+        }
         if (prevBtn) prevBtn.disabled = currentPacksPage === 0;
         if (nextBtn) nextBtn.disabled = currentPacksPage >= totalPages - 1;
 
-        if (packEntries.length === 0) {
+        if (themes.length === 0) {
             gridEl.innerHTML = '<p style="color:var(--text-muted)">No vocab packs available.</p>';
             return;
         }
 
-        const startIndex = currentPacksPage * PACKS_PER_PAGE;
-        const pageEntries = packEntries.slice(startIndex, startIndex + PACKS_PER_PAGE);
-        const emptySlots = Math.max(0, PACKS_PER_PAGE - pageEntries.length);
+        const packs = vocabPacks[activeTheme] || {};
+        const packEntries = Object.entries(packs);
+        const emptySlots = Math.max(0, 5 - packEntries.length);
 
-        gridEl.innerHTML = pageEntries.map(([theme, words]) => {
-            const packTag = theme.toLowerCase().split(' ')[0];
+        gridEl.innerHTML = packEntries.map(([packName, words]) => {
+            const packTag = `${activeTheme.toLowerCase()}-${packName.toLowerCase().replace(/\s+/g, '-')}`;
             const wordCount = Array.isArray(words) ? words.length : 0;
             const isPackAdded = allWords.some(w => w.tags && w.tags.includes(packTag));
 
             return `
                 <div class="pack-tile">
                     <div>
-                        <div class="pack-tile-name">${escHtml(theme)}</div>
+                        <div class="pack-tile-name">${escHtml(packName)}</div>
                         <div class="pack-tile-count">${wordCount} words</div>
                     </div>
                     <div class="pack-tile-actions">
-                        <button class="pack-tile-btn review-btn review-pack-btn" data-theme="${escHtml(theme)}">Review</button>
-                        <button class="pack-tile-btn add-btn add-pack-btn" data-theme="${escHtml(theme)}" ${isPackAdded ? 'disabled' : ''}>
-                            ${isPackAdded ? 'Added' : 'Add pack'}
+                        <button class="pack-tile-btn review-btn review-pack-btn" data-theme="${escHtml(activeTheme)}" data-pack="${escHtml(packName)}">View now</button>
+                        <button class="pack-tile-btn add-btn add-pack-btn" data-theme="${escHtml(activeTheme)}" data-pack="${escHtml(packName)}" ${isPackAdded ? 'disabled' : ''}>
+                            ${isPackAdded ? 'Added' : 'Add for review'}
                         </button>
                     </div>
                 </div>
@@ -2729,11 +2738,11 @@ function getDueWords(wordsList) {
         `).join('');
 
         gridEl.querySelectorAll('.review-pack-btn').forEach(btn => {
-            btn.addEventListener('click', () => openPackReviewModal(btn.dataset.theme));
+            btn.addEventListener('click', () => openPackReviewModal(btn.dataset.theme, btn.dataset.pack));
         });
 
         gridEl.querySelectorAll('.add-pack-btn').forEach(btn => {
-            btn.addEventListener('click', () => addPackToReview(btn.dataset.theme));
+            btn.addEventListener('click', () => addPackToReview(btn.dataset.theme, btn.dataset.pack));
         });
     }
 
@@ -2746,39 +2755,44 @@ function getDueWords(wordsList) {
             return;
         }
 
-        listEl.innerHTML = Object.entries(vocabPacks).map(([theme, words]) => {
-            const packTag = theme.toLowerCase().split(' ')[0];
-            const isPackAdded = allWords.some(w => w.tags && w.tags.includes(packTag));
+        let html = '';
+        Object.entries(vocabPacks).forEach(([themeName, packs]) => {
+            Object.entries(packs).forEach(([packName, words]) => {
+                const packTag = `${themeName.toLowerCase()}-${packName.toLowerCase().replace(/\s+/g, '-')}`;
+                const isPackAdded = allWords.some(w => w.tags && w.tags.includes(packTag));
+                html += `
+                    <div class="pack-item">
+                        <div class="pack-info">
+                            <span class="pack-theme">${escHtml(themeName)} - ${escHtml(packName)}</span>
+                            <span class="pack-count">${words.length} words</span>
+                        </div>
+                        <div class="pack-actions">
+                            <button class="btn btn-outline btn-sm review-pack-btn" data-theme="${escHtml(themeName)}" data-pack="${escHtml(packName)}">Review this pack now</button>
+                            <button class="btn btn-primary btn-sm add-pack-btn" data-theme="${escHtml(themeName)}" data-pack="${escHtml(packName)}" ${isPackAdded ? 'disabled' : ''}>
+                                ${isPackAdded ? 'Pack Added ✓' : 'Add this pack to review'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+        });
 
-            return `
-                <div class="pack-item">
-                    <div class="pack-info">
-                        <span class="pack-theme">${escHtml(theme)}</span>
-                        <span class="pack-count">${words.length} words</span>
-                    </div>
-                    <div class="pack-actions">
-                        <button class="btn btn-outline btn-sm review-pack-btn" data-theme="${escHtml(theme)}">Review this pack now</button>
-                        <button class="btn btn-primary btn-sm add-pack-btn" data-theme="${escHtml(theme)}" ${isPackAdded ? 'disabled' : ''}>
-                            ${isPackAdded ? 'Pack Added ✓' : 'Add this pack to review'}
-                        </button>
-                    </div>
-                </div>
-            `;
-        }).join('');
+        listEl.innerHTML = html;
 
         listEl.querySelectorAll('.review-pack-btn').forEach(btn => {
-            btn.addEventListener('click', () => openPackReviewModal(btn.dataset.theme));
+            btn.addEventListener('click', () => openPackReviewModal(btn.dataset.theme, btn.dataset.pack));
         });
         listEl.querySelectorAll('.add-pack-btn').forEach(btn => {
-            btn.addEventListener('click', () => addPackToReview(btn.dataset.theme));
+            btn.addEventListener('click', () => addPackToReview(btn.dataset.theme, btn.dataset.pack));
         });
     }
 
-    function openPackReviewModal(theme) {
-        currentReviewPack = vocabPacks[theme];
+    function openPackReviewModal(themeName, packName) {
+        const themePacks = vocabPacks[themeName];
+        currentReviewPack = themePacks ? themePacks[packName] : null;
         if (!currentReviewPack) return;
         currentReviewPage = 0;
-        document.getElementById('pack-review-title').textContent = `Review: ${theme}`;
+        document.getElementById('pack-review-title').textContent = `Review: ${themeName} - ${packName}`;
         renderPackReviewPage();
         const modal = document.getElementById('pack-review-modal');
         if (modal) modal.classList.remove('hidden');
@@ -2830,13 +2844,15 @@ function getDueWords(wordsList) {
         });
     }
 
-    async function addPackToReview(theme) {
-        const words = vocabPacks[theme];
+    async function addPackToReview(themeName, packName) {
+        const themePacks = vocabPacks[themeName];
+        const words = themePacks ? themePacks[packName] : null;
         if (!words) return;
 
         const now = Date.now();
         const dayMs = 24 * 60 * 60 * 1000;
         const newWords = [];
+        const packTag = `${themeName.toLowerCase()}-${packName.toLowerCase().replace(/\s+/g, '-')}`;
 
         let addedCount = 0;
         words.forEach((item) => {
@@ -2852,7 +2868,7 @@ function getDueWords(wordsList) {
                     learning_timestamp: futureTimestamp,
                     url: buildFocloirUrl(item.translation),
                     primary_translation: item.word,
-                    tags: ["vocab-pack", theme.toLowerCase().split(' ')[0]],
+                    tags: ["vocab-pack", packTag],
                     sr_step: 0
                 };
                 newWords.push(newWord);
@@ -2893,7 +2909,7 @@ function getDueWords(wordsList) {
                 if (!resp.ok) throw new Error(await resp.text());
                 
                 closePacksModal();
-                alert(`Added ${newWords.length} new words from the "${theme}" pack! They will become available in groups of 5 every 24 hours.`);
+                alert(`Added ${newWords.length} new words from the "${themeName} - ${packName}" pack! They will become available in groups of 5 every 24 hours.`);
                 
                 await loadWords(activeSession);
             } catch (err) {
@@ -2955,7 +2971,7 @@ function getDueWords(wordsList) {
         }
     });
     document.getElementById('packs-next-btn').addEventListener('click', () => {
-        const totalPages = Math.max(1, Math.ceil(Object.keys(vocabPacks).length / PACKS_PER_PAGE));
+        const totalPages = Object.keys(vocabPacks).length;
         if (currentPacksPage < totalPages - 1) {
             currentPacksPage++;
             renderPacksGrid();

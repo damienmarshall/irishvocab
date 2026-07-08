@@ -1,80 +1,139 @@
 {
-  "Bia (Food)": [
-    {"word": "úll", "translation": "apple"},
-    {"word": "arán", "translation": "bread"},
-    {"word": "bainne", "translation": "milk"},
-    {"word": "cáis", "translation": "cheese"},
-    {"word": "im", "translation": "butter"},
-    {"word": "feoil", "translation": "meat"},
-    {"word": "iasc", "translation": "fish"},
-    {"word": "glasraí", "translation": "vegetables"},
-    {"word": "torthaí", "translation": "fruits"},
-    {"word": "uisce", "translation": "water"},
-    {"word": "sicín", "translation": "chicken"},
-    {"word": "uibheacha", "translation": "eggs"},
-    {"word": "siúcra", "translation": "sugar"},
-    {"word": "salann", "translation": "salt"},
-    {"word": "briosca", "translation": "biscuit"},
-    {"word": "tae", "translation": "tea"},
-    {"word": "caife", "translation": "coffee"},
-    {"word": "sú", "translation": "juice"},
-    {"word": "anraith", "translation": "soup"},
-    {"word": "prátaí", "translation": "potatoes"}
-  ],
-  "Ainmhithe (Animals)": [
-    {"word": "madra", "translation": "dog"},
-    {"word": "cat", "translation": "cat"},
-    {"word": "bó", "translation": "cow"},
-    {"word": "capall", "translation": "horse"},
-    {"word": "caora", "translation": "sheep"},
-    {"word": "muc", "translation": "pig"},
-    {"word": "lacha", "translation": "duck"},
-    {"word": "éan", "translation": "bird"},
-    {"word": "luch", "translation": "mouse"},
-    {"word": "coinín", "translation": "rabbit"},
-    {"word": "sionnach", "translation": "fox"},
-    {"word": "mac tíre", "translation": "wolf"},
-    {"word": "feoirling", "translation": "squirrel"},
-    {"word": "frog", "translation": "frog"},
-    {"word": "iasc órga", "translation": "goldfish"},
-    {"word": "damhán alla", "translation": "spider"},
-    {"word": "beach", "translation": "bee"},
-    {"word": "féileacán", "translation": "butterfly"},
-    {"word": "leon", "translation": "lion"},
-    {"word": "tíogar", "translation": "tiger"}
-  ],
-  "Éadaí (Clothes)": [
-    {"word": "bróga", "translation": "shoes"},
-    {"word": "stocaí", "translation": "socks"},
-    {"word": "briste", "translation": "trousers"},
-    {"word": "léine", "translation": "shirt"},
-    {"word": "gúna", "translation": "dress"},
-    {"word": "sciorta", "translation": "skirt"},
-    {"word": "cóta", "translation": "coat"},
-    {"word": "hata", "translation": "hat"},
-    {"word": "geansaí", "translation": "jumper"},
-    {"word": "seaicéad", "translation": "jacket"},
-    {"word": "lámhainní", "translation": "gloves"},
-    {"word": "scairf", "translation": "scarf"},
-    {"word": "bhróga reatha", "translation": "trainers"},
-    {"word": "briste gearr", "translation": "shorts"},
-    {"word": "t-léine", "translation": "t-shirt"}
-  ],
-  "Aimsir (Weather)": [
-    {"word": "grian", "translation": "sun"},
-    {"word": "báisteach", "translation": "rain"},
-    {"word": "sneachta", "translation": "snow"},
-    {"word": "gaoth", "translation": "wind"},
-    {"word": "scamall", "translation": "cloud"},
-    {"word": "reo", "translation": "frost"},
-    {"word": "tintreach", "translation": "lightning"},
-    {"word": "toirneach", "translation": "thunder"},
-    {"word": "ceo", "translation": "fog"},
-    {"word": "stoirm", "translation": "storm"},
-    {"word": "teocht", "translation": "temperature"},
-    {"word": "fuar", "translation": "cold"},
-    {"word": "te", "translation": "hot"},
-    {"word": "fliuch", "translation": "wet"},
-    {"word": "tirim", "translation": "dry"}
-  ]
+  "Home": {
+    "Kitchen": [
+      {"word": "cupán", "translation": "cup"},
+      {"word": "pláta", "translation": "plate"},
+      {"word": "spúnóg", "translation": "spoon"},
+      {"word": "forc", "translation": "fork"},
+      {"word": "scian", "translation": "knife"},
+      {"word": "tábla", "translation": "table"},
+      {"word": "cathaoir", "translation": "chair"},
+      {"word": "cuisneoir", "translation": "fridge"},
+      {"word": "oigheann", "translation": "oven"},
+      {"word": "citeal", "translation": "kettle"}
+    ],
+    "Sitting Room": [
+      {"word": "tolg", "translation": "sofa"},
+      {"word": "teilifís", "translation": "television"},
+      {"word": "ruga", "translation": "rug"},
+      {"word": "teallach", "translation": "fireplace"},
+      {"word": "cathaoir uilleach", "translation": "armchair"},
+      {"word": "seilf leabhar", "translation": "bookshelf"},
+      {"word": "cuirtín", "translation": "curtain"},
+      {"word": "lampa", "translation": "lampa"}
+    ],
+    "Bathroom": [
+      {"word": "cithfholcadh", "translation": "shower"},
+      {"word": "folcadán", "translation": "bath"},
+      {"word": "doirteal", "translation": "sink"},
+      {"word": "leithreas", "translation": "toilet"},
+      {"word": "tuáille", "translation": "towel"},
+      {"word": "gallúnach", "translation": "soap"},
+      {"word": "scuab fiacla", "translation": "toothbrush"},
+      {"word": "scáthán", "translation": "mirror"}
+    ]
+  },
+  "School": {
+    "General": [
+      {"word": "múinteoir", "translation": "teacher"},
+      {"word": "dalta", "translation": "student"},
+      {"word": "leabhar", "translation": "book"},
+      {"word": "peann", "translation": "pen"},
+      {"word": "peann luaidhe", "translation": "pencil"},
+      {"word": "deasc", "translation": "desk"},
+      {"word": "mála", "translation": "bag"},
+      {"word": "seomra ranga", "translation": "classroom"},
+      {"word": "clár bán", "translation": "whiteboard"}
+    ],
+    "Maths Age 4-7": [
+      {"word": "comhair", "translation": "count"},
+      {"word": "uimhir", "translation": "number"},
+      {"word": "móide", "translation": "plus"},
+      {"word": "lúide", "translation": "minus"},
+      {"word": "ciorcal", "translation": "circle"},
+      {"word": "cearnóg", "translation": "square"},
+      {"word": "triantán", "translation": "triangle"}
+    ],
+    "Maths Age 8-12": [
+      {"word": "méadaigh", "translation": "multiply"},
+      {"word": "roinn", "translation": "divide"},
+      {"word": "codán", "translation": "fraction"},
+      {"word": "deachúil", "translation": "decimal"},
+      {"word": "faoin gcéad", "translation": "percent"},
+      {"word": "geoiméadracht", "translation": "geometry"},
+      {"word": "uillinn", "translation": "angle"},
+      {"word": "cothromóid", "translation": "equation"}
+    ],
+    "History": [
+      {"word": "rí", "translation": "king"},
+      {"word": "banríon", "translation": "queen"},
+      {"word": "caisleán", "translation": "castle"},
+      {"word": "ársa", "translation": "ancient"},
+      {"word": "impireacht", "translation": "empire"},
+      {"word": "cath", "translation": "battle"},
+      {"word": "taiscéalaí", "translation": "explorer"},
+      {"word": "saighdiúir", "translation": "soldier"}
+    ],
+    "Geography": [
+      {"word": "léarscáil", "translation": "map"},
+      {"word": "cruinneog", "translation": "globe"},
+      {"word": "tír", "translation": "country"},
+      {"word": "príomhbhaile", "translation": "capital"},
+      {"word": "abhainn", "translation": "river"},
+      {"word": "sliabh", "translation": "mountain"},
+      {"word": "aigéan", "translation": "ocean"},
+      {"word": "mór-roinn", "translation": "continent"}
+    ],
+    "Art": [
+      {"word": "péint", "translation": "paint"},
+      {"word": "scuab", "translation": "brush"},
+      {"word": "líníocht", "translation": "drawing"},
+      {"word": "dath", "translation": "color"},
+      {"word": "canbhás", "translation": "canvas"},
+      {"word": "dealbhóireacht", "translation": "sculpture"},
+      {"word": "páipéar", "translation": "paper"}
+    ]
+  },
+  "Sports": {
+    "General": [
+      {"word": "liathróid", "translation": "ball"},
+      {"word": "cluiche", "translation": "game"},
+      {"word": "foireann", "translation": "team"},
+      {"word": "scór", "translation": "score"},
+      {"word": "bua", "translation": "win"},
+      {"word": "caill", "translation": "lose"},
+      {"word": "curadh", "translation": "champion"},
+      {"word": "réiteoir", "translation": "referee"},
+      {"word": "cóitseálaí", "translation": "coach"}
+    ],
+    "Football": [
+      {"word": "cúl", "translation": "goal"},
+      {"word": "páirc", "translation": "pitch"},
+      {"word": "bróg", "translation": "boot"},
+      {"word": "geansaí", "translation": "jersey"},
+      {"word": "ciceáil", "translation": "kick"},
+      {"word": "pas", "translation": "pass"},
+      {"word": "cúinne", "translation": "corner"},
+      {"word": "cic pionóis", "translation": "penalty"}
+    ],
+    "Hurling": [
+      {"word": "camán", "translation": "hurley"},
+      {"word": "sliotar", "translation": "sliotar"},
+      {"word": "clogad", "translation": "helmet"},
+      {"word": "páirc", "translation": "pitch"},
+      {"word": "scór", "translation": "score"},
+      {"word": "pointe", "translation": "point"},
+      {"word": "cúl", "translation": "goal"},
+      {"word": "réiteoir", "translation": "referee"}
+    ],
+    "Basketball": [
+      {"word": "fáinne", "translation": "hoop"},
+      {"word": "cúirt", "translation": "court"},
+      {"word": "preabadh", "translation": "dribble"},
+      {"word": "scaoil", "translation": "shoot"},
+      {"word": "athphreabadh", "translation": "rebound"},
+      {"word": "feall", "translation": "foul"},
+      {"word": "ciseán", "translation": "basket"}
+    ]
+  }
 }
