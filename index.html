@@ -2659,10 +2659,25 @@ function getDueWords(wordsList) {
 
     async function loadVocabPacks() {
         try {
-            const response = await fetch('packs.json');
-            vocabPacks = await response.json();
+            // Fetch from the public Supabase table — no auth needed (anon key only)
+            const url = `${SUPABASE_URL}/rest/v1/vocab_packs?enabled=eq.true&select=theme,pack_name,words&order=theme,pack_name`;
+            const response = await fetch(url, {
+                headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const rows = await response.json();
+            // Reshape flat rows → { Theme: { PackName: [...words] } }
+            vocabPacks = {};
+            for (const row of rows) {
+                if (!vocabPacks[row.theme]) vocabPacks[row.theme] = {};
+                vocabPacks[row.theme][row.pack_name] = row.words;
+            }
         } catch (e) {
-            console.error("Failed to load vocab packs:", e);
+            console.error("Failed to load vocab packs from Supabase:", e);
+            vocabPacks = {};
         }
     }
 
@@ -2810,7 +2825,7 @@ function getDueWords(wordsList) {
         const nextBtn = document.getElementById('pack-review-next-btn');
         if (!gridEl || !currentReviewPack) return;
 
-        const cardsPerPage = 8;
+        const cardsPerPage = 10;
         const startIndex = currentReviewPage * cardsPerPage;
         const endIndex = Math.min(startIndex + cardsPerPage, currentReviewPack.length);
         const pageWords = currentReviewPack.slice(startIndex, endIndex);
@@ -2987,7 +3002,7 @@ function getDueWords(wordsList) {
     });
     
     document.getElementById('pack-review-next-btn').addEventListener('click', () => {
-        if (currentReviewPack && currentReviewPage < Math.ceil(currentReviewPack.length / 8) - 1) {
+        if (currentReviewPack && currentReviewPage < Math.ceil(currentReviewPack.length / 10) - 1) {
             currentReviewPage++;
             renderPackReviewPage();
         }
