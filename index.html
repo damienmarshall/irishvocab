@@ -2171,6 +2171,7 @@
     // UI — LOGGED IN
     // ───────────────────────────────────────────────
     let allWords = [];
+    let activeWords = [];
     let currentIndex = 0;
     let activeSession = null;
     let pendingReviewUpdates = [];
@@ -2223,13 +2224,17 @@
       }
 
       document.getElementById('viewer-loading').style.display = 'none';
-      document.getElementById('dash-sub').textContent = `${allWords.length} word${allWords.length !== 1 ? 's' : ''} saved`;
+      
+      const now = Date.now();
+      activeWords = allWords.filter(w => !w.timestamp || w.timestamp <= now);
 
-      updateStats(allWords);
+      document.getElementById('dash-sub').textContent = `${activeWords.length} word${activeWords.length !== 1 ? 's' : ''} saved`;
+
+      updateStats(activeWords);
       renderSpacedRepPanel();
-      renderWordGrid(allWords);
+      renderWordGrid(activeWords);
 
-      if (allWords.length === 0) {
+      if (activeWords.length === 0) {
         document.getElementById('viewer-empty').style.display = 'block';
         return;
       }
@@ -2336,8 +2341,10 @@ function getDueWords(wordsList) {
   // 1. Get the start of today (00:00:00.000)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const now = Date.now();
 
   return wordsList.filter(word => {
+    if (word.timestamp && word.timestamp > now) return false;
     const step = Number(word.srStep ?? word.sr_step ?? 0);
     if (step >= 5) return false;
     
@@ -2525,7 +2532,7 @@ function getDueWords(wordsList) {
     function renderCard(index) {
       const container = document.getElementById('card-container');
       container.innerHTML = '';
-      const word = allWords[index];
+      const word = activeWords[index];
       if (!word) return;
 
       const senses = Array.isArray(word.senses) ? word.senses : [];
@@ -2582,7 +2589,7 @@ function getDueWords(wordsList) {
 
           // Save to Supabase and update word grid
           syncWordProgress(word).then(() => {
-            renderWordGrid(allWords);
+            renderWordGrid(activeWords);
             toast('Primary translation updated and synced!', 'success');
           }).catch(err => {
             console.error('Failed to sync translation update:', err);
@@ -2600,12 +2607,12 @@ function getDueWords(wordsList) {
       });
 
       container.appendChild(card);
-      document.getElementById('card-counter').textContent = `${index + 1} / ${allWords.length}`;
+      document.getElementById('card-counter').textContent = `${index + 1} / ${activeWords.length}`;
     }
 
     function updateNavButtons() {
       document.getElementById('prev-btn').disabled = currentIndex === 0;
-      document.getElementById('next-btn').disabled = currentIndex === allWords.length - 1;
+      document.getElementById('next-btn').disabled = currentIndex === activeWords.length - 1;
     }
 
     function renderWordGrid(words) {
@@ -2974,7 +2981,7 @@ function getDueWords(wordsList) {
       if (currentIndex > 0) { currentIndex--; renderCard(currentIndex); updateNavButtons(); }
     });
     document.getElementById('next-btn').addEventListener('click', () => {
-      if (currentIndex < allWords.length - 1) { currentIndex++; renderCard(currentIndex); updateNavButtons(); }
+      if (currentIndex < activeWords.length - 1) { currentIndex++; renderCard(currentIndex); updateNavButtons(); }
     });
 
     document.getElementById('dash-sync-btn').addEventListener('click', async () => {
