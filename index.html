@@ -1135,6 +1135,26 @@
       transform: scale(1.03);
     }
 
+    .sr-master-btn {
+      background: transparent;
+      color: #0070f3;
+      border: 1.5px solid #0070f3;
+      border-radius: 50px;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .sr-master-btn:hover {
+      background: rgba(0, 112, 243, 0.08);
+      transform: scale(1.03);
+    }
+
     .sr-review-expand-btn {
       background: none;
       border: none;
@@ -1694,6 +1714,7 @@
         <p id="dash-sub">Loading your words…</p>
       </div>
       <div style="display:flex; gap: 0.5rem; align-items:center;">
+        <button id="dash-daily-sceal-btn" class="btn btn-outline btn-sm">📅 Enable Daily Scéal</button>
         <button id="dash-vocab-packs-btn" class="btn btn-primary btn-sm">📚 Vocab Packs</button>
         <button id="dash-sync-btn" class="btn btn-outline btn-sm">↻ Sync now</button>
       </div>
@@ -2196,7 +2217,8 @@
 
     let settings = {
       srTime: localStorage.getItem('srTime') || '09:00',
-      srPopupEnabled: localStorage.getItem('srPopupEnabled') !== 'false'
+      srPopupEnabled: localStorage.getItem('srPopupEnabled') !== 'false',
+      dailyScealEnabled: localStorage.getItem('dailyScealEnabled') === 'true'
     };
 
     async function fetchUserSettings(session) {
@@ -2213,9 +2235,14 @@
           if (rows && rows[0]) {
             settings.srTime = rows[0].sr_time || '09:00';
             settings.srPopupEnabled = rows[0].sr_popup_enabled ?? true;
+            // daily_sceal_enabled is an optional column - only trust it if present
+            if (rows[0].daily_sceal_enabled !== undefined && rows[0].daily_sceal_enabled !== null) {
+              settings.dailyScealEnabled = !!rows[0].daily_sceal_enabled;
+            }
             // Cache locally for offline use
             localStorage.setItem('srTime', settings.srTime);
             localStorage.setItem('srPopupEnabled', settings.srPopupEnabled.toString());
+            localStorage.setItem('dailyScealEnabled', settings.dailyScealEnabled.toString());
           }
         }
       } catch (err) {
@@ -2251,6 +2278,7 @@
       const first = session.fullname?.split('@')[0] || 'there';
       document.getElementById('dash-greeting').textContent = `Fáilte ar ais! 🍀`;
 
+      updateDailyScealButton();
       loadWords(session);
     }
 
@@ -2525,8 +2553,9 @@ function getDueWords(wordsList) {
                 <span class="sr-stage-tag">Interval ${stepNum}</span>
               </div>
               <div class="sr-review-actions">
-                <button class="sr-ack-btn" data-word="${escHtml(w.word)}">Got it! ✓</button>
-                <button class="sr-forgot-btn" data-word="${escHtml(w.word)}">I forgot ↩</button>
+                <button class="sr-ack-btn" data-word="${escHtml(w.word)}">Got it!</button>
+                <button class="sr-forgot-btn" data-word="${escHtml(w.word)}">I forgot</button>
+                <button class="sr-master-btn" data-word="${escHtml(w.word)}">I know it</button>
                 <button class="sr-review-expand-btn">▼</button>
               </div>
             </div>
@@ -2544,6 +2573,7 @@ function getDueWords(wordsList) {
         header.addEventListener('click', (e) => {
           if (e.target.closest('.sr-ack-btn')) return; // ignore clicks on ack button
           if (e.target.closest('.sr-forgot-btn')) return; // ignore clicks on forgot button
+          if (e.target.closest('.sr-master-btn')) return; // ignore clicks on master button
           const item = header.closest('.sr-review-item');
           if (item) {
             const wasExpanded = item.classList.contains('expanded');
@@ -2631,6 +2661,48 @@ function getDueWords(wordsList) {
               if (remaining.length === 0 && pendingReviewUpdates.length > 0) {
                 syncPendingReviewUpdates().catch(err => {
                   console.error('spaced repetition sync failed:', err);
+                });
+              }
+            }, 300);
+          }
+        });
+      });
+
+      // I know it / Master logic — sets interval to 6 (beyond 5, easiest) to remove from review cycle
+      listEl.querySelectorAll('.sr-master-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const wordText = btn.dataset.word;
+          const word = allWords.find(item => item.word.toLowerCase() === wordText.toLowerCase());
+          if (!word) return;
+
+          // Set SR interval to 6 (beyond level 5) to remove from review cycle
+          word.srStep = 6;
+          word.sr_step = 6;
+          word.learningTimestamp = Date.now();
+          word.learning_timestamp = word.learningTimestamp;
+
+          const existing = pendingReviewUpdates.find(item => item.word.toLowerCase() === word.word.toLowerCase());
+          if (existing) {
+            existing.srStep = 6;
+            existing.learningTimestamp = word.learningTimestamp;
+          } else {
+            pendingReviewUpdates.push({ ...word });
+          }
+
+          // Visually remove item
+          const itemEl = btn.closest('.sr-review-item');
+          if (itemEl) {
+            itemEl.classList.add('fade-out');
+            setTimeout(() => {
+              renderSpacedRepPanel();
+              const remaining = getDueWords(allWords);
+              if (remaining.length === 0 && pendingReviewUpdates.length > 0) {
+                syncPendingReviewUpdates().then(() => {
+                  toast(`Finished your review and synced ${pendingReviewUpdates.length} card${pendingReviewUpdates.length === 1 ? '' : 's'}.`, 'success');
+                }).catch(err => {
+                  console.error('spaced repetition sync failed:', err);
+                  toast('Could not sync your review progress.', 'error');
                 });
               }
             }, 300);
@@ -3047,6 +3119,179 @@ function getDueWords(wordsList) {
     }
 
     // ───────────────────────────────────────────────
+    // DAILY SCÉAL
+    // ───────────────────────────────────────────────
+    function getTodayDateStr() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function updateDailyScealButton() {
+      const btn = document.getElementById('dash-daily-sceal-btn');
+      if (!btn) return;
+      const enabled = !!settings.dailyScealEnabled;
+      btn.textContent = enabled ? '📅 Daily Scéal: On' : '📅 Enable Daily Scéal';
+      btn.classList.toggle('btn-primary', enabled);
+      btn.classList.toggle('btn-outline', !enabled);
+      btn.title = enabled
+        ? 'Daily Scéal is on — click to turn it off'
+        : 'Daily Scéal is off — click to turn it on and import today’s words';
+    }
+
+    async function saveDailyScealSetting(enabled) {
+      settings.dailyScealEnabled = enabled;
+      localStorage.setItem('dailyScealEnabled', enabled.toString());
+      updateDailyScealButton();
+
+      // Best-effort cross-device sync. The column is optional, so a failure
+      // here must never break the local toggle.
+      try {
+        if (activeSession && activeSession.user_id) {
+          await fetch(`${SUPABASE_URL}/rest/v1/user_settings?user_id=eq.${activeSession.user_id}`, {
+            method: 'PATCH',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${activeSession.access_token}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            body: JSON.stringify({ daily_sceal_enabled: enabled })
+          });
+        }
+      } catch (err) {
+        console.warn('Could not sync dailyScealEnabled to Supabase:', err);
+      }
+    }
+
+    async function importDailyScealWords(session) {
+      const today = getTodayDateStr();
+
+      try {
+        // daily_sceal is a public read-only table - anon key is sufficient
+        const resp = await fetch(`${SUPABASE_URL}/rest/v1/daily_sceal?date=eq.${encodeURIComponent(today)}&select=*`, {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!resp.ok) throw new Error(await resp.text());
+
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0 || !Array.isArray(data[0].words) || data[0].words.length === 0) {
+          toast(`No Daily Scéal words are published yet for ${today}. Try again later.`, 'error');
+          return;
+        }
+
+        const dailyWords = data[0].words;
+        const now = Date.now();
+        const newWords = [];
+
+        dailyWords.forEach((item, index) => {
+          const english = (item.english || '').trim();
+          const irish = (item.irish || '').trim();
+          if (!english || !irish) return;
+
+          const alreadyExists = (allWords || []).some(w => {
+            const wWord = (w.word || '').toLowerCase();
+            const wPrimary = (w.primary_translation || w.primaryTranslation || '').toLowerCase();
+            const wTranslations = (w.senses || []).flatMap(s => (s.translations || []).map(t => t.toLowerCase()));
+            return wWord === english.toLowerCase() ||
+                   wPrimary === irish.toLowerCase() ||
+                   wTranslations.includes(irish.toLowerCase());
+          });
+
+          if (!alreadyExists) {
+            const ts = now - index * 10;
+            newWords.push({
+              word: english,
+              senses: [{ definition: 'Daily Scéal', translations: [irish] }],
+              timestamp: ts,
+              learning_timestamp: ts,
+              url: buildFocloirUrl(english),
+              primary_translation: irish,
+              tags: ['daily-sceal'],
+              sr_step: 0
+            });
+          }
+        });
+
+        if (newWords.length === 0) {
+          toast("You've already got today's Daily Scéal words!", 'success');
+          return;
+        }
+
+        const payload = newWords.map(w => ({
+          user_id: session.user_id,
+          word: w.word,
+          senses: w.senses,
+          timestamp: w.timestamp,
+          learning_timestamp: w.learning_timestamp,
+          url: w.url,
+          primary_translation: w.primary_translation,
+          tags: w.tags,
+          sr_step: 0
+        }));
+
+        const postResp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!postResp.ok) throw new Error(await postResp.text());
+
+        toast(`Added ${newWords.length} Daily Scéal word${newWords.length === 1 ? '' : 's'}!`, 'success');
+        await loadWords(session);
+      } catch (err) {
+        console.error('Failed to import Daily Scéal words:', err);
+        toast('Failed to load Daily Scéal words. Check console.', 'error');
+        throw err;
+      }
+    }
+
+    async function toggleDailySceal() {
+      if (!activeSession || !activeSession.user_id) {
+        toast('Please sign in first.', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('dash-daily-sceal-btn');
+      const enabling = !settings.dailyScealEnabled;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Working…';
+      }
+
+      try {
+        await saveDailyScealSetting(enabling);
+        if (enabling) {
+          await importDailyScealWords(activeSession);
+        } else {
+          toast('Daily Scéal turned off.', 'success');
+        }
+      } catch (err) {
+        console.error('toggleDailySceal failed:', err);
+        // Roll back so the button never lies about the saved state
+        await saveDailyScealSetting(!enabling);
+        toast('Something went wrong — Daily Scéal setting unchanged.', 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+        updateDailyScealButton();
+      }
+    }
+
+    // ───────────────────────────────────────────────
     // BOOT
     // ───────────────────────────────────────────────
     async function boot() {
@@ -3087,6 +3332,7 @@ function getDueWords(wordsList) {
     document.getElementById('nav-logout-btn').addEventListener('click', signOut);
     document.getElementById('custom-card-form').addEventListener('submit', addCustomFlashcardFromForm);
 
+    document.getElementById('dash-daily-sceal-btn').addEventListener('click', toggleDailySceal);
     document.getElementById('dash-vocab-packs-btn').addEventListener('click', openPacksModal);
     document.getElementById('close-packs-modal-btn').addEventListener('click', closePacksModal);
     document.getElementById('packs-prev-btn').addEventListener('click', () => {
