@@ -904,26 +904,6 @@
       color: #e67e22;
     }
 
-    .quickadd-undo {
-      border: 1px solid rgba(0, 0, 0, 0.1);
-      background: white;
-      border-radius: 10px;
-      padding: 0 0.55rem;
-      font: inherit;
-      font-size: 0.8rem;
-      font-weight: 600;
-      white-space: nowrap;
-      cursor: pointer;
-      color: var(--text-main);
-      min-height: 44px;
-      flex: 0 0 auto;
-    }
-
-    .quickadd-undo:disabled {
-      opacity: 0.4;
-      cursor: default;
-    }
-
     @media (max-width: 850px) {
       .quickadd-row {
         grid-template-columns: 1fr;
@@ -1846,8 +1826,6 @@
           style="min-width:auto; padding:0 0.55rem; font-size:0.78rem;">English ⇄ Irish</button>
         <button type="button" class="fada-key" id="qa-order-ir"
           style="min-width:auto; padding:0 0.55rem; font-size:0.78rem;">Irish ⇄ English</button>
-        <button type="button" class="quickadd-undo" id="qa-undo" disabled
-          style="margin-left:auto;">↩ Undo</button>
       </div>
 
       <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
@@ -2459,7 +2437,6 @@
     // This keeps rapid entry responsive and works with poor/no signal.
 
     const QA_QUEUE_KEY = 'quickadd_pending_queue';
-    const QA_LAST_KEY = 'quickadd_last_saved';
 
     // Lowercase Irish vowels with fadas, plus the apostrophe (used constantly in
     // words like lamhfhocal, ait, dosceal) and the comma - all awkward to reach
@@ -2473,7 +2450,6 @@
 
     let qaSyncTimer = null;
     let qaRefreshTimer = null;
-    let qaLastSaved = null;
 
     function qaSetBulkStatus(msg, kind = '') {
       const el = document.getElementById('qa-bulk-status');
@@ -2579,44 +2555,9 @@
       }, ...(allWords || [])];
 
       qaSaveQueue([...qaLoadQueue(), entry]);
-      qaLastSaved = entry;
-      try { localStorage.setItem(QA_LAST_KEY, JSON.stringify(entry)); } catch (e) { /* ignore */ }
 
       qaBuzz();
       return 'ok';
-    }
-
-    function updateUndoButton() {
-      const btn = document.getElementById('qa-undo');
-      if (btn) btn.disabled = !qaLastSaved;
-    }
-
-    function qaUndoLast() {
-      if (!qaLastSaved) return;
-      const target = qaLastSaved;
-
-      allWords = (allWords || []).filter(w => !(
-        w.word === target.english &&
-        (w.primary_translation || '') === target.irish
-      ));
-
-      qaSaveQueue(qaLoadQueue().filter(q => q.token !== target.token));
-
-      if (activeSession && activeSession.user_id) {
-        fetch(`${SUPABASE_URL}/rest/v1/flashcards?user_id=eq.${encodeURIComponent(activeSession.user_id)}` +
-          `&word=eq.${encodeURIComponent(target.english)}`, {
-          method: 'DELETE',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${activeSession.access_token}`
-          }
-        }).catch(err => console.warn('Undo delete failed:', err));
-      }
-
-      qaLastSaved = null;
-      try { localStorage.removeItem(QA_LAST_KEY); } catch (e) { /* ignore */ }
-      qaSetBulkStatus(`Removed ${target.irish}`);
-      updateUndoButton();
     }
 
     // ── Fada keys ──
@@ -2769,7 +2710,6 @@
         input.value = '';
         qaScheduleSync();
         qaRefreshDeckSoon();
-        updateUndoButton();
       }
     }
 
@@ -2784,12 +2724,6 @@
     function qaInit() {
       qaBuildFadaBar();
 
-      try {
-        const saved = localStorage.getItem(QA_LAST_KEY);
-        if (saved) qaLastSaved = JSON.parse(saved);
-      } catch (e) { /* ignore */ }
-      updateUndoButton();
-
       qaSetBulkOrder('en-first');
       const orderEn = document.getElementById('qa-order-en');
       const orderIr = document.getElementById('qa-order-ir');
@@ -2801,9 +2735,6 @@
         orderIr.addEventListener('mousedown', (e) => e.preventDefault());
         orderIr.addEventListener('click', () => qaSetBulkOrder('ir-first'));
       }
-
-      const undoBtn = document.getElementById('qa-undo');
-      if (undoBtn) undoBtn.addEventListener('click', qaUndoLast);
 
       const bulkBtn = document.getElementById('qa-bulk-add');
       if (bulkBtn) bulkBtn.addEventListener('click', qaBulkAdd);
