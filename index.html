@@ -2932,17 +2932,29 @@ function getDueWords(wordsList) {
       if (!activeSession || !activeSession.access_token) return;
       const value = (word.pronunciation || '').trim();
 
-      const resp = await fetch(
-        `${SUPABASE_URL}/rest/v1/flashcards?user_id=eq.${encodeURIComponent(activeSession.user_id)}` +
-        `&word=eq.${encodeURIComponent(word.word)}`, {
-        method: 'PATCH',
+      // Uses the same insert/upsert as the rest of the app rather than a PATCH:
+      // an UPDATE depends on the flashcards UPDATE RLS policy being granted to
+      // the user, while the insert path is already known to work.
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
+        method: 'POST',
         headers: {
           'apikey': SUPABASE_ANON_KEY,
           'Authorization': `Bearer ${activeSession.access_token}`,
           'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
+          'Prefer': 'resolution=merge-duplicates'
         },
-        body: JSON.stringify({ pronunciation: value || null })
+        body: JSON.stringify({
+          user_id: activeSession.user_id,
+          word: word.word,
+          senses: Array.isArray(word.senses) ? word.senses : [],
+          timestamp: normalizeTimestamp(word.timestamp),
+          url: word.url || '',
+          tags: Array.isArray(word.tags) ? word.tags : [],
+          sr_step: Number(word.sr_step ?? word.srStep ?? 0),
+          learning_timestamp: normalizeTimestamp(word.learning_timestamp || word.timestamp),
+          primary_translation: word.primary_translation || word.primaryTranslation || null,
+          pronunciation: value || null
+        })
       });
 
       if (!resp.ok) throw new Error(await resp.text());
