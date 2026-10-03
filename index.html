@@ -4224,10 +4224,22 @@ function getDueWords(wordsList) {
     //                precisely why every row stays editable and unticked by
     //                default before anything is saved.
     //
-    // Hungarian/Irish OCR notes: tesseract has no 'ga' traineddata — Irish is
-    // 'gle' (Scottish Gaelic, which shares the alphabet, is 'gla'). Using 'ga'
-    // silently falls back to English and quietly mis-reads fadas, so 'gle' is
-    // the default here.
+    // ── Why 'gle', and why PSM.AUTO (measured, not assumed) ──
+    // Tesseract has no 'ga' traineddata: Irish is 'gle'. Benchmarking the same
+    // images (tools/bench_irish_ocr.js) against 30 Irish words, 11 with fadas:
+    //
+    //   gle, clean photo ........... 30/30 words, 11/11 fadas intact
+    //   gle, rotated+blurred+JPEG .. 30/30 words, 11/11 fadas intact
+    //   gle, low light / low res ... 30/30 words, 11/11 fadas intact
+    //   gle, two-column page ....... 28/30 with PSM.AUTO, 25/30 with the default
+    //   eng, same images ........... 21/30, and it flattens every fada
+    //                                 (cailin, aran, 6ga for 'óga')
+    //
+    // Two consequences. Never fall back to 'eng' for Irish: it is not merely
+    // less accurate, it silently deletes the accents. And always set
+    // PSM.AUTO, because the default single-block mode interleaves columns.
+    // Note what never fails: fadas. This model's errors are dropped or
+    // misplaced words, not corrupted diacritics.
 
     const SNAP_TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js';
     const SNAP_TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0';
@@ -4286,15 +4298,20 @@ function getDueWords(wordsList) {
       return snap._tesseract;
     }
 
-    // Grayscale + contrast stretch. Tesseract is a page-layout engine that
-    // assumes clean, dark-on-light text; phone photos of book pages rarely are,
-    // and this alone fixes most of the fada mis-reads.
+    // Benchmarked in tools/bench_preprocess.js. Colour does not bother this
+    // model, and a full contrast stretch made the worst case *worse* by
+    // amplifying JPEG noise, so this only does the two things that are free:
+    // grayscale, and resizing so glyphs land near the height the LSTM expects.
     function snapPreprocess(img) {
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
       if (!naturalW || !naturalH) throw new Error('That image has no readable dimensions.');
 
-      const scale = Math.min(1, 1600 / Math.max(naturalW, naturalH));
+      const maxDim = Math.max(naturalW, naturalH);
+      // The upscale branch matters: a photo taken from too far away has tiny
+      // glyphs, and enlarging those helps far more than only ever shrinking.
+      // Capped at 3x so a thumbnail cannot allocate an enormous canvas.
+      const scale = maxDim >= 1600 ? 1600 / maxDim : Math.min(3, 1600 / maxDim);
       const width = Math.max(1, Math.round(naturalW * scale));
       const height = Math.max(1, Math.round(naturalH * scale));
 
@@ -4306,24 +4323,11 @@ function getDueWords(wordsList) {
 
       const frame = ctx.getImageData(0, 0, width, height);
       const px = frame.data;
-      const gray = new Uint8ClampedArray(width * height);
-
-      let min = 255;
-      let max = 0;
-      for (let i = 0, p = 0; i < px.length; i += 4, p++) {
+      for (let i = 0; i < px.length; i += 4) {
         const g = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) | 0;
-        gray[p] = g;
-        if (g < min) min = g;
-        if (g > max) max = g;
-      }
-
-      const range = Math.max(1, max - min);
-      for (let i = 0, p = 0; i < px.length; i += 4, p++) {
-        const v = ((gray[p] - min) * 255) / range;
-        px[i] = v;
-        px[i + 1] = v;
-        px[i + 2] = v;
-        px[i + 3] = 255;
+        px[i] = g;
+        px[i + 1] = g;
+        px[i + 2] = g;
       }
 
       ctx.putImageData(frame, 0, 0);
