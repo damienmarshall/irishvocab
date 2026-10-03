@@ -2621,6 +2621,7 @@
 
     // ── Fada keys ──
     function qaInsertAtCaret(field, text) {
+      if (!field) return;
       const start = field.selectionStart ?? field.value.length;
       const end = field.selectionEnd ?? field.value.length;
       field.value = field.value.slice(0, start) + text + field.value.slice(end);
@@ -2642,13 +2643,14 @@
         btn.textContent = ch;
         btn.setAttribute('aria-label', `Insert ${FADA_LABELS[ch] || ch}`);
 
-        // Suppress the default focus change on both mouse and touch so the
-        // textarea never blurs (which would close the on-screen keyboard).
-        // These handlers deliberately do NOT insert - see the click handler below.
+        // Stop the tap from blurring the textarea (which would close the
+        // on-screen keyboard). mousedown is the correct hook here: calling
+        // preventDefault on it suppresses the default focus change but still
+        // lets the subsequent click event fire. Using touchstart instead would
+        // swallow that click and the key would do nothing.
         btn.addEventListener('mousedown', (e) => e.preventDefault());
-        btn.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 
-        // Only click inserts. Handling touchstart too would insert twice per tap.
+        // A single click handler means exactly one insert per tap.
         btn.addEventListener('click', (e) => {
           e.preventDefault();
 
