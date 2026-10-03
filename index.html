@@ -817,6 +817,173 @@
       }
     }
 
+    /* ── Quick Add (mobile-first bulk entry) ── */
+    .quickadd-panel {
+      background: var(--card-bg);
+      border-radius: 20px;
+      padding: 1.2rem 1.3rem;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      margin-bottom: 1.5rem;
+    }
+
+    .quickadd-tabs {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 0.9rem;
+      background: rgba(0, 0, 0, 0.04);
+      border-radius: 12px;
+      padding: 0.25rem;
+    }
+
+    .quickadd-tab {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 0.55rem 0.5rem;
+      border-radius: 9px;
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      min-height: 44px;
+    }
+
+    .quickadd-tab.active {
+      background: white;
+      color: var(--primary);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Fada / vowel shortcut bar */
+    .fada-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 0.7rem;
+    }
+
+    .fada-key {
+      min-width: 44px;
+      min-height: 44px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      background: white;
+      border-radius: 10px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      padding: 0 0.5rem;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .fada-key:active {
+      background: var(--primary);
+      color: white;
+    }
+
+    .quickadd-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .quickadd-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .quickadd-row input,
+    .quickadd-row textarea {
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 12px;
+      padding: 0.8rem 0.85rem;
+      font: inherit;
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+      background: white;
+      width: 100%;
+      min-height: 48px;
+    }
+
+    .quickadd-row input:focus,
+    .quickadd-row textarea:focus,
+    .bulk-input:focus {
+      outline: 2px solid rgba(0, 154, 68, 0.2);
+      border-color: var(--primary);
+    }
+
+    .quickadd-row input.qa-dupe {
+      border-color: #e67e22;
+      background: #fff8f0;
+    }
+
+    .bulk-input {
+      width: 100%;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 12px;
+      padding: 0.8rem 0.85rem;
+      font: inherit;
+      font-size: 16px;
+      background: white;
+      line-height: 1.7;
+    }
+
+    .quickadd-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+      min-height: 2.5rem;
+    }
+
+    .quickadd-status {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .quickadd-status.success {
+      color: var(--primary);
+    }
+
+    .quickadd-status.error {
+      color: #c0392b;
+    }
+
+    .quickadd-status.pending {
+      color: #e67e22;
+    }
+
+    .quickadd-undo {
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      background: white;
+      border-radius: 10px;
+      padding: 0.5rem 0.8rem;
+      font: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      color: var(--text-main);
+      min-height: 44px;
+    }
+
+    .quickadd-undo:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    @media (max-width: 850px) {
+      .quickadd-row {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+      }
+    }
+
     .empty-state {
       text-align: center;
       padding: 3rem 2rem;
@@ -1720,17 +1887,43 @@
       </div>
     </div>
 
-    <div class="custom-card-panel">
+    <!-- Quick Add: mobile-first rapid word entry -->
+    <div class="quickadd-panel" id="quickadd-panel">
       <div class="custom-card-header">
-        <h3>Add a custom flashcard</h3>
-        <p>Enter the Irish word and its English meaning.</p>
+        <h3>Add words</h3>
+        <p>Irish first, then the meaning. Press <strong>Next</strong> to move on — it saves as you go.</p>
       </div>
-      <form id="custom-card-form" class="custom-card-form">
-        <input type="text" id="custom-irish" placeholder="Irish word" required>
-        <input type="text" id="custom-english" placeholder="English meaning" required>
-        <button type="submit" class="btn btn-primary btn-sm">Add card</button>
-      </form>
-      <div id="custom-card-status" class="custom-card-status" role="status" aria-live="polite"></div>
+
+      <div class="quickadd-tabs" role="tablist">
+        <button type="button" class="quickadd-tab active" id="qa-tab-quick" data-mode="quick" role="tab"
+          aria-selected="true">⚡ Quick add</button>
+        <button type="button" class="quickadd-tab" id="qa-tab-bulk" data-mode="bulk" role="tab"
+          aria-selected="false">📋 Bulk paste</button>
+      </div>
+
+      <div id="qa-quick-pane">
+        <div class="fada-bar" id="qa-fada-bar" aria-label="Irish vowel shortcuts"></div>
+        <div class="quickadd-rows" id="qa-rows"></div>
+        <div class="quickadd-footer">
+          <span id="qa-status" class="quickadd-status" role="status" aria-live="polite"></span>
+          <button type="button" class="quickadd-undo" id="qa-undo" disabled>↩ Undo</button>
+        </div>
+      </div>
+
+      <div id="qa-bulk-pane" style="display:none;">
+        <div class="fada-bar" style="margin-bottom:0.5rem;">
+          <button type="button" class="fada-key" id="qa-order-en"
+            style="min-width:auto; padding:0 0.9rem; font-size:0.85rem;">English ⇄ Irish</button>
+          <button type="button" class="fada-key" id="qa-order-ir"
+            style="min-width:auto; padding:0 0.9rem; font-size:0.85rem;">Irish ⇄ English</button>
+        </div>
+        <textarea id="qa-bulk-input" class="bulk-input" rows="7" autocapitalize="off" autocorrect="off"
+          spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach&#10;&#10;One pair per line. Use = , tab or - to separate.&#10;Words with fadas are detected automatically."></textarea>
+        <div class="quickadd-footer">
+          <span id="qa-bulk-status" class="quickadd-status" role="status" aria-live="polite"></span>
+          <button type="button" class="btn btn-primary btn-sm" id="qa-bulk-add">Add all</button>
+        </div>
+      </div>
     </div>
 
     <div class="spaced-rep-panel" id="spaced-rep-panel">
@@ -2250,12 +2443,6 @@
       }
     }
 
-    function setCustomCardStatus(message, isError = false) {
-      const statusEl = document.getElementById('custom-card-status');
-      if (!statusEl) return;
-      statusEl.textContent = message;
-      statusEl.className = `custom-card-status ${isError ? 'error' : 'success'}`;
-    }
 
     function buildFocloirUrl(irishWord) {
       const normalizedIrish = (irishWord || '').trim();
@@ -2279,6 +2466,8 @@
       document.getElementById('dash-greeting').textContent = `Fáilte ar ais! 🍀`;
 
       updateDailyScealButton();
+      // Push anything that was typed while signed out or offline
+      qaFlushQueue();
       loadWords(session);
     }
 
@@ -2323,61 +2512,488 @@
       updateNavButtons();
     }
 
-    async function addCustomFlashcardFromForm(event) {
-      event.preventDefault();
-      if (!activeSession) {
-        setCustomCardStatus('Please sign in first.', true);
-        return;
+    // Note: the old single-pair "Add card" form was replaced by the Quick Add
+    // panel above (qaInit), which auto-saves on advance and batches to Supabase.
+
+    // ───────────────────────────────────────────────
+    // QUICK ADD
+    // ───────────────────────────────────────────────
+    // Local-first: words are appended to the in-memory deck and written to
+    // localStorage immediately, then pushed to Supabase in the background.
+    // This keeps rapid entry responsive and works with poor/no signal.
+
+    const QA_QUEUE_KEY = 'quickadd_pending_queue';
+    const QA_LAST_KEY = 'quickadd_last_saved';
+
+    // Irish vowels incl. fadas - present in nearly every Irish word.
+    const FADA_KEYS = ['á', 'é', 'í', 'ó', 'ú', 'Á', 'É', 'Í', 'Ó', 'Ú', 'ñ'];
+
+    let qaSyncTimer = null;
+    let qaRefreshTimer = null;
+    let qaLastSaved = null;
+
+    function qaSetStatus(msg, kind = '') {
+      const el = document.getElementById('qa-status');
+      if (!el) return;
+      el.textContent = msg;
+      el.className = `quickadd-status ${kind}`;
+    }
+
+    function qaSetBulkStatus(msg, kind = '') {
+      const el = document.getElementById('qa-bulk-status');
+      if (!el) return;
+      el.textContent = msg;
+      el.className = `quickadd-status ${kind}`;
+    }
+
+    function qaBuzz(ms = 12) {
+      try {
+        if (navigator.vibrate) navigator.vibrate(ms);
+      } catch (e) { /* vibration not supported */ }
+    }
+
+    // ── Pending queue (survives reloads, flushes when back online) ──
+    function qaLoadQueue() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(QA_QUEUE_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
       }
+    }
 
-      const irishInput = document.getElementById('custom-irish');
-      const englishInput = document.getElementById('custom-english');
-      const form = document.getElementById('custom-card-form');
+    function qaSaveQueue(queue) {
+      localStorage.setItem(QA_QUEUE_KEY, JSON.stringify(queue));
+    }
 
-      if (!irishInput || !englishInput || !form) return;
+    async function qaFlushQueue() {
+      const queue = qaLoadQueue();
+      if (!queue.length) return;
+      if (!activeSession || !activeSession.user_id) return;
 
-      const irishWord = irishInput.value.trim();
-      const englishWord = englishInput.value.trim();
-      const focloirUrl = buildFocloirUrl(englishWord);
-
-      if (!irishWord || !englishWord || !focloirUrl) {
-        setCustomCardStatus('Please fill in all fields.', true);
-        return;
-      }
+      const batch = queue.slice();
+      const payload = batch.map(w => ({
+        user_id: activeSession.user_id,
+        word: w.english,
+        senses: [{ definition: 'General', translations: [w.irish] }],
+        timestamp: w.timestamp,
+        learning_timestamp: w.timestamp,
+        url: buildFocloirUrl(w.english),
+        primary_translation: w.irish,
+        tags: ['custom']
+      }));
 
       try {
-        const payload = [{
-          user_id: activeSession.user_id,
-          word: englishWord,
-          senses: [{ definition: "General", translations: [irishWord] }],
-          timestamp: Date.now(),
-          learning_timestamp: Date.now(),
-          url: focloirUrl,
-          primary_translation: irishWord,
-          tags: ['custom']
-        }];
-
         const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
           method: 'POST',
           headers: {
             'apikey': SUPABASE_ANON_KEY,
             'Authorization': `Bearer ${activeSession.access_token}`,
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(payload)
         });
 
         if (!resp.ok) throw new Error(await resp.text());
 
-        form.reset();
-        setCustomCardStatus(`Added ${irishWord}.`);
-        toast('Custom card added!', 'success');
-        await loadWords(activeSession);
+        // Only drop the entries that were actually sent
+        qaSaveQueue(qaLoadQueue().filter(q => !batch.some(b => b.token === q.token)));
       } catch (err) {
-        console.error('addCustomFlashcardFromForm error:', err);
-        setCustomCardStatus('Could not save the card.', true);
-        toast('Could not save the card.', 'error');
+        console.warn('Quick add: sync failed, words stay queued locally.', err);
       }
+    }
+
+    function qaScheduleSync() {
+      clearTimeout(qaSyncTimer);
+      qaSyncTimer = setTimeout(() => { qaFlushQueue(); }, 1500);
+    }
+
+    // ── Row rendering ──
+    function qaCreateRow() {
+      const row = document.createElement('div');
+      row.className = 'quickadd-row';
+
+      const irish = document.createElement('input');
+      irish.type = 'text';
+      irish.className = 'qa-irish';
+      irish.placeholder = 'Irish word';
+      irish.autocomplete = 'off';
+      irish.autocapitalize = 'off';
+      irish.autocorrect = 'off';
+      irish.spellcheck = false;
+      irish.enterKeyHint = 'next';
+      irish.setAttribute('aria-label', 'Irish word');
+
+      const english = document.createElement('input');
+      english.type = 'text';
+      english.className = 'qa-english';
+      english.placeholder = 'English meaning';
+      english.autocomplete = 'off';
+      english.autocapitalize = 'off';
+      english.autocorrect = 'off';
+      english.spellcheck = false;
+      english.enterKeyHint = 'done';
+      english.setAttribute('aria-label', 'English meaning');
+
+      // Irish -> Next jumps to the meaning box
+      irish.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          qaSaveRowIfComplete(row);
+          english.focus();
+        }
+      });
+
+      // Meaning -> Next/Done saves and drops down to a fresh row
+      english.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          qaSaveRowIfComplete(row);
+          qaFocusNextRow(row);
+        }
+      });
+
+      row.appendChild(irish);
+      row.appendChild(english);
+      return row;
+    }
+
+    function qaEnsureRows(count) {
+      const container = document.getElementById('qa-rows');
+      if (!container) return;
+      const current = container.querySelectorAll('.quickadd-row').length;
+      for (let i = current; i < count; i++) {
+        container.appendChild(qaCreateRow());
+      }
+    }
+
+    function qaFocusNextRow(currentRow) {
+      const container = document.getElementById('qa-rows');
+      if (!container) return;
+
+      const rows = Array.from(container.querySelectorAll('.quickadd-row'));
+      const idx = rows.indexOf(currentRow);
+
+      // Keep spare rows ready so the keyboard never closes
+      if (idx >= rows.length - 3) qaEnsureRows(rows.length + 3);
+
+      const next = rows[idx + 1] || container.querySelector('.quickadd-row:last-child');
+      const input = next ? next.querySelector('.qa-irish') : null;
+      if (input) {
+        input.focus();
+        input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
+
+    function qaWordExists(english) {
+      const key = (english || '').trim().toLowerCase();
+      if (!key) return false;
+      return (allWords || []).some(w => (w.word || '').toLowerCase() === key);
+    }
+
+    // Appends to the local deck + queue. 'ok' | 'duplicate' | 'incomplete'
+    function qaAddWord(irish, english) {
+      const irishWord = (irish || '').trim();
+      const englishWord = (english || '').trim();
+      if (!irishWord || !englishWord) return 'incomplete';
+      if (qaWordExists(englishWord)) return 'duplicate';
+
+      const timestamp = Date.now();
+      const entry = {
+        irish: irishWord,
+        english: englishWord,
+        timestamp,
+        token: `${timestamp}-${Math.random().toString(36).slice(2, 8)}`
+      };
+
+      // Show immediately - no waiting on the network
+      allWords = [{
+        user_id: activeSession ? activeSession.user_id : null,
+        word: englishWord,
+        senses: [{ definition: 'General', translations: [irishWord] }],
+        timestamp,
+        learning_timestamp: timestamp,
+        url: buildFocloirUrl(englishWord),
+        primary_translation: irishWord,
+        tags: ['custom'],
+        sr_step: 0
+      }, ...(allWords || [])];
+
+      qaSaveQueue([...qaLoadQueue(), entry]);
+      qaLastSaved = entry;
+      try { localStorage.setItem(QA_LAST_KEY, JSON.stringify(entry)); } catch (e) { /* ignore */ }
+
+      qaBuzz();
+      return 'ok';
+    }
+
+    function qaSaveRowIfComplete(row) {
+      if (!row) return;
+      const irish = row.querySelector('.qa-irish');
+      const english = row.querySelector('.qa-english');
+      if (!irish || !english) return;
+
+      const result = qaAddWord(irish.value, english.value);
+      if (result === 'ok') {
+        irish.value = '';
+        english.value = '';
+        english.classList.remove('qa-dupe');
+        qaSetStatus('Saved', 'success');
+        updateUndoButton();
+        qaScheduleSync();
+        qaRefreshDeckSoon();
+      } else if (result === 'duplicate') {
+        english.classList.add('qa-dupe');
+        qaSetStatus('Already in your list - skipped', 'pending');
+      } else {
+        qaSetStatus('Need both an Irish word and a meaning', 'error');
+      }
+    }
+
+    function updateUndoButton() {
+      const btn = document.getElementById('qa-undo');
+      if (btn) btn.disabled = !qaLastSaved;
+    }
+
+    function qaUndoLast() {
+      if (!qaLastSaved) return;
+      const target = qaLastSaved;
+
+      allWords = (allWords || []).filter(w => !(
+        w.word === target.english &&
+        (w.primary_translation || '') === target.irish
+      ));
+
+      qaSaveQueue(qaLoadQueue().filter(q => q.token !== target.token));
+
+      if (activeSession && activeSession.user_id) {
+        fetch(`${SUPABASE_URL}/rest/v1/flashcards?user_id=eq.${encodeURIComponent(activeSession.user_id)}` +
+          `&word=eq.${encodeURIComponent(target.english)}`, {
+          method: 'DELETE',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${activeSession.access_token}`
+          }
+        }).catch(err => console.warn('Undo delete failed:', err));
+      }
+
+      qaLastSaved = null;
+      try { localStorage.removeItem(QA_LAST_KEY); } catch (e) { /* ignore */ }
+      qaSetStatus(`Removed ${target.irish}`);
+      updateUndoButton();
+    }
+
+    // ── Fada keys ──
+    function qaInsertAtCaret(field, text) {
+      const start = field.selectionStart ?? field.value.length;
+      const end = field.selectionEnd ?? field.value.length;
+      field.value = field.value.slice(0, start) + text + field.value.slice(end);
+      const pos = start + text.length;
+      try { field.setSelectionRange(pos, pos); } catch (e) { /* ignore */ }
+      field.focus();
+    }
+
+    function qaBuildFadaBar() {
+      const bar = document.getElementById('qa-fada-bar');
+      if (!bar) return;
+
+      FADA_KEYS.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fada-key';
+        btn.textContent = ch;
+        btn.setAttribute('aria-label', `Insert ${ch}`);
+
+        // Prevent blur so the on-screen keyboard stays open on mobile
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+
+        const insert = () => {
+          const field = document.activeElement;
+          const target = (field && (field.classList.contains('qa-irish') || field.classList.contains('qa-english')))
+            ? field
+            : document.querySelector('.qa-irish');
+          if (target) qaInsertAtCaret(target, ch);
+        };
+
+        btn.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          insert();
+        }, { passive: false });
+
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          insert();
+        });
+
+        bar.appendChild(btn);
+      });
+    }
+
+    // ── Bulk paste parsing ──
+    // Which side of each pair is Irish. Fadas override this automatically.
+    let qaBulkOrder = 'en-first'; // 'en-first' | 'ir-first'
+
+    function qaSetBulkOrder(order) {
+      qaBulkOrder = order;
+      const en = document.getElementById('qa-order-en');
+      const ir = document.getElementById('qa-order-ir');
+      if (en) {
+        en.style.background = order === 'en-first' ? 'var(--primary)' : 'white';
+        en.style.color = order === 'en-first' ? 'white' : 'var(--text-main)';
+      }
+      if (ir) {
+        ir.style.background = order === 'ir-first' ? 'var(--primary)' : 'white';
+        ir.style.color = order === 'ir-first' ? 'white' : 'var(--text-main)';
+      }
+    }
+
+    const QA_IRISH_HINTS = /[áéíóúñ]/i;
+    const QA_IRISH_WORDS = /^(an|na|ag|go|do|de|le|ar|as|is|ach|ní|ó|agus|roimh|faoi)$/i;
+
+    function qaLooksIrish(value) {
+      return QA_IRISH_HINTS.test(value) || QA_IRISH_WORDS.test(value);
+    }
+
+    // Splits each line on a delimiter, tolerating spaces around it.
+    function qaParseBulk(text) {
+      const lines = (text || '').split(/\r?\n/);
+      const pairs = [];
+      const skipped = [];
+
+      lines.forEach(raw => {
+        const line = raw.trim();
+        if (!line) return;
+
+        let parts = null;
+        const eq = line.split(/\s*=\s*/);
+        if (eq.length === 2) parts = eq;
+        else {
+          const tab = line.split(/\t+/);
+          if (tab.length === 2) parts = tab;
+        }
+        if (!parts) {
+          const comma = line.split(/\s*,\s*/);
+          if (comma.length === 2) parts = comma;
+        }
+        if (!parts) {
+          const dash = line.split(/\s+-\s+/);
+          if (dash.length === 2) parts = dash;
+        }
+
+        if (!parts) { skipped.push(line); return; }
+
+        const a = parts[0].trim();
+        const b = parts[1].trim();
+        if (!a || !b) { skipped.push(line); return; }
+
+        const aIrish = qaLooksIrish(a);
+        const bIrish = qaLooksIrish(b);
+
+        // A fada on exactly one side is a reliable signal - trust it.
+        // Otherwise fall back to whichever order the user selected.
+        if (aIrish && !bIrish) pairs.push({ irish: a, english: b });
+        else if (bIrish && !aIrish) pairs.push({ irish: b, english: a });
+        else if (qaBulkOrder === 'ir-first') pairs.push({ irish: a, english: b });
+        else pairs.push({ irish: b, english: a });
+      });
+
+      return { pairs, skipped };
+    }
+
+    async function qaBulkAdd() {
+      if (!activeSession) {
+        qaSetBulkStatus('Please sign in first.', 'error');
+        return;
+      }
+
+      const input = document.getElementById('qa-bulk-input');
+      const { pairs, skipped } = qaParseBulk(input ? input.value : '');
+
+      if (!pairs.length) {
+        qaSetBulkStatus('Nothing to add - use one pair per line.', 'error');
+        return;
+      }
+
+      let added = 0, dupes = 0;
+      pairs.forEach(p => {
+        const result = qaAddWord(p.irish, p.english);
+        if (result === 'ok') added++;
+        else if (result === 'duplicate') dupes++;
+      });
+
+      const bits = [`Added ${added}`];
+      if (dupes) bits.push(`skipped ${dupes} duplicate${dupes === 1 ? '' : 's'}`);
+      if (skipped.length) bits.push(`${skipped.length} unreadable line${skipped.length === 1 ? '' : 's'}`);
+
+      qaSetBulkStatus(bits.join(', '), added ? 'success' : 'pending');
+
+      if (added) {
+        input.value = '';
+        qaScheduleSync();
+        qaRefreshDeckSoon();
+        updateUndoButton();
+      }
+    }
+
+    // Debounced full refresh - avoids refetching every flashcard per word.
+    function qaRefreshDeckSoon() {
+      clearTimeout(qaRefreshTimer);
+      qaRefreshTimer = setTimeout(() => {
+        loadWords(activeSession).then(() => qaFlushQueue());
+      }, 2500);
+    }
+
+    function qaInit() {
+      qaBuildFadaBar();
+      qaEnsureRows(4);
+
+      try {
+        const saved = localStorage.getItem(QA_LAST_KEY);
+        if (saved) qaLastSaved = JSON.parse(saved);
+      } catch (e) { /* ignore */ }
+      updateUndoButton();
+
+      qaSetBulkOrder('en-first');
+      const orderEn = document.getElementById('qa-order-en');
+      const orderIr = document.getElementById('qa-order-ir');
+      if (orderEn) {
+        orderEn.addEventListener('mousedown', (e) => e.preventDefault());
+        orderEn.addEventListener('click', () => qaSetBulkOrder('en-first'));
+      }
+      if (orderIr) {
+        orderIr.addEventListener('mousedown', (e) => e.preventDefault());
+        orderIr.addEventListener('click', () => qaSetBulkOrder('ir-first'));
+      }
+
+      const quickPane = document.getElementById('qa-quick-pane');
+      const bulkPane = document.getElementById('qa-bulk-pane');
+
+      document.querySelectorAll('.quickadd-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.quickadd-tab').forEach(t => {
+            t.classList.remove('active');
+            t.setAttribute('aria-selected', 'false');
+          });
+          tab.classList.add('active');
+          tab.setAttribute('aria-selected', 'true');
+          const isQuick = tab.dataset.mode === 'quick';
+          quickPane.style.display = isQuick ? '' : 'none';
+          bulkPane.style.display = isQuick ? 'none' : '';
+          if (isQuick) {
+            const first = document.querySelector('.qa-irish');
+            if (first) first.focus();
+          }
+        });
+      });
+
+      const undoBtn = document.getElementById('qa-undo');
+      if (undoBtn) undoBtn.addEventListener('click', qaUndoLast);
+
+      const bulkBtn = document.getElementById('qa-bulk-add');
+      if (bulkBtn) bulkBtn.addEventListener('click', qaBulkAdd);
+
+      // Flush anything left over from a previous session
+      window.addEventListener('online', () => qaFlushQueue());
     }
 
     function updateStats(words) {
@@ -3053,7 +3669,15 @@ function getDueWords(wordsList) {
 
         let addedCount = 0;
         words.forEach((item) => {
-            const alreadyExists = allWords.some(w => w.word.toLowerCase() === item.translation.toLowerCase());
+            // Pack data is { word: <irish>, translation: <english> }.
+            // Canonical shape (matches content.js focloir scraping):
+            //   word = english, primary_translation = irish, url keyed on english.
+            const irishKey = item.word.toLowerCase();
+            const englishKey = item.translation.toLowerCase();
+            const alreadyExists = allWords.some(w => {
+                const wWord = (w.word || '').toLowerCase();
+                return wWord === englishKey || wWord === irishKey;
+            });
             if (!alreadyExists) {
                 const groupIndex = Math.floor(addedCount / 5);
                 const futureTimestamp = now + groupIndex * dayMs;
@@ -3196,13 +3820,20 @@ function getDueWords(wordsList) {
           const irish = (item.irish || '').trim();
           if (!english || !irish) return;
 
+          // Canonical shape (matches content.js focloir scraping):
+          //   word = english, primary_translation = irish, url keyed on english.
+          const irishKey = irish.toLowerCase();
+          const englishKey = english.toLowerCase();
           const alreadyExists = (allWords || []).some(w => {
             const wWord = (w.word || '').toLowerCase();
             const wPrimary = (w.primary_translation || w.primaryTranslation || '').toLowerCase();
             const wTranslations = (w.senses || []).flatMap(s => (s.translations || []).map(t => t.toLowerCase()));
-            return wWord === english.toLowerCase() ||
-                   wPrimary === irish.toLowerCase() ||
-                   wTranslations.includes(irish.toLowerCase());
+            return wWord === englishKey ||
+                   wPrimary === irishKey ||
+                   wTranslations.includes(irishKey) ||
+                   wWord === irishKey ||
+                   wPrimary === englishKey ||
+                   wTranslations.includes(englishKey);
           });
 
           if (!alreadyExists) {
@@ -3330,7 +3961,7 @@ function getDueWords(wordsList) {
     document.getElementById('auth-google-btn').addEventListener('click', startGoogleLoginWithDisclaimer);
     document.getElementById('hero-signin-btn').addEventListener('click', startGoogleLoginWithDisclaimer);
     document.getElementById('nav-logout-btn').addEventListener('click', signOut);
-    document.getElementById('custom-card-form').addEventListener('submit', addCustomFlashcardFromForm);
+    qaInit();
 
     document.getElementById('dash-daily-sceal-btn').addEventListener('click', toggleDailySceal);
     document.getElementById('dash-vocab-packs-btn').addEventListener('click', openPacksModal);
