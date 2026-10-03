@@ -1850,8 +1850,8 @@
           style="margin-left:auto;">↩ Undo</button>
       </div>
 
-      <textarea id="qa-bulk-input" class="bulk-input" rows="9" autocapitalize="off" autocorrect="off"
-        spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach&#10;&#10;One pair per line.&#10;Words with fadas are detected automatically."></textarea>
+      <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
+        spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach&#10;&#10;One pair per line. Drag to enlarge."></textarea>
 
       <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
         style="margin-top:0.6rem;"></div>
@@ -2633,6 +2633,8 @@
       const bar = document.getElementById('qa-fada-bar');
       if (!bar) return;
 
+      const bulk = document.getElementById('qa-bulk-input');
+
       FADA_KEYS.forEach(ch => {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -2640,26 +2642,23 @@
         btn.textContent = ch;
         btn.setAttribute('aria-label', `Insert ${FADA_LABELS[ch] || ch}`);
 
-        // Prevent blur so the on-screen keyboard stays open on mobile
+        // Suppress the default focus change on both mouse and touch so the
+        // textarea never blurs (which would close the on-screen keyboard).
+        // These handlers deliberately do NOT insert - see the click handler below.
         btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 
-        // Insert into the bulk box (or whatever text field is focused).
-        const insert = () => {
-          const active = document.activeElement;
-          const target = (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT'))
-            ? active
-            : document.getElementById('qa-bulk-input');
-          if (target) qaInsertAtCaret(target, ch);
-        };
-
-        btn.addEventListener('touchstart', (e) => {
-          e.preventDefault();
-          insert();
-        }, { passive: false });
-
+        // Only click inserts. Handling touchstart too would insert twice per tap.
         btn.addEventListener('click', (e) => {
           e.preventDefault();
-          insert();
+
+          // Prefer whatever text field the user is actually in; fall back to
+          // the bulk box if focus slipped onto the button itself.
+          const active = document.activeElement;
+          const isField = active && active !== btn &&
+            (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT');
+
+          qaInsertAtCaret(isField ? active : bulk, ch);
         });
 
         bar.appendChild(btn);
