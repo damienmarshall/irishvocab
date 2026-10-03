@@ -2793,7 +2793,17 @@
       const { pairs, skipped } = qaParseBulk(input ? input.value : '');
 
       if (!pairs.length) {
-        qaSetBulkStatus('Nothing to add - use one pair per line.', 'error');
+        // Say WHY each line was rejected - a bare "nothing to add" is useless
+        // when the real problem is a stray delimiter or a missing word.
+        if (!skipped.length) {
+          qaSetBulkStatus('Nothing to add - type a line like: dog = madra = MADR-RA', 'error');
+        } else {
+          const shown = skipped.slice(0, 2).map(l => `"${l.length > 40 ? l.slice(0, 40) + '…' : l}"`).join(', ');
+          qaSetBulkStatus(
+            `Couldn't read: ${shown}. Use one pair per line, e.g. dog = madra = MADR-RA`,
+            'error'
+          );
+        }
         return;
       }
 
