@@ -632,6 +632,94 @@
       opacity: 0.75;
     }
 
+    .card-back-pronunciation {
+      font-size: 1rem;
+      opacity: 0.85;
+      margin-top: 0.35rem;
+      font-style: italic;
+    }
+
+    .card-pron-editor {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.9rem;
+      padding-top: 0.7rem;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .card-pron-input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 10px;
+      padding: 0.55rem 0.7rem;
+      font: inherit;
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .card-pron-input:focus {
+      outline: 2px solid rgba(0, 154, 68, 0.2);
+      border-color: var(--primary);
+    }
+
+    .card-pron-save {
+      border: none;
+      border-radius: 10px;
+      background: var(--primary);
+      color: white;
+      font: inherit;
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 0 0.9rem;
+      cursor: pointer;
+      min-height: 44px;
+    }
+
+    .card-back-pronunciation {
+      font-size: 1rem;
+      opacity: 0.85;
+      margin-top: 0.35rem;
+      font-style: italic;
+    }
+
+    .card-pron-editor {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.9rem;
+      padding-top: 0.7rem;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .card-pron-input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 10px;
+      padding: 0.55rem 0.7rem;
+      font: inherit;
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .card-pron-input:focus {
+      outline: 2px solid rgba(0, 154, 68, 0.2);
+      border-color: var(--primary);
+    }
+
+    .card-pron-save {
+      border: none;
+      border-radius: 10px;
+      background: var(--primary);
+      color: white;
+      font: inherit;
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 0 0.9rem;
+      cursor: pointer;
+      min-height: 44px;
+    }
+
     .card-back-trans {
       display: flex;
       flex-wrap: wrap;
@@ -1829,7 +1917,7 @@
       </div>
 
       <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
-        spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach&#10;&#10;One pair per line. Drag to enlarge."></textarea>
+        spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach = /haus/&#10;&#10;One pair per line. Add a third &#10;column for pronunciation.&#10;Drag to enlarge."></textarea>
 
       <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
         style="margin-top:0.6rem;"></div>
@@ -2293,6 +2381,7 @@
         sr_step: Number(word.sr_step ?? word.srStep ?? 0),
         primaryTranslation: word.primary_translation || word.primaryTranslation || null,
         primary_translation: word.primary_translation || word.primaryTranslation || null,
+        pronunciation: word.pronunciation || '',
         tags: Array.isArray(word.tags) ? word.tags : [],
         senses: Array.isArray(word.senses) ? word.senses : [],
       }));
@@ -2484,16 +2573,23 @@
       if (!activeSession || !activeSession.user_id) return;
 
       const batch = queue.slice();
-      const payload = batch.map(w => ({
-        user_id: activeSession.user_id,
-        word: w.english,
-        senses: [{ definition: 'General', translations: [w.irish] }],
-        timestamp: w.timestamp,
-        learning_timestamp: w.timestamp,
-        url: buildFocloirUrl(w.english),
-        primary_translation: w.irish,
-        tags: ['custom']
-      }));
+      const payload = batch.map(w => {
+        const row = {
+          user_id: activeSession.user_id,
+          word: w.english,
+          senses: [{ definition: 'General', translations: [w.irish] }],
+          timestamp: w.timestamp,
+          learning_timestamp: w.timestamp,
+          url: buildFocloirUrl(w.english),
+          primary_translation: w.irish,
+          tags: ['custom']
+        };
+        // Omit when blank so this upsert never clears a pronunciation that
+        // was already stored server-side.
+        const pron = (w.pronunciation || '').trim();
+        if (pron) row.pronunciation = pron;
+        return row;
+      });
 
       try {
         const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
@@ -2527,9 +2623,10 @@
     }
 
     // Appends to the local deck + queue. 'ok' | 'duplicate' | 'incomplete'
-    function qaAddWord(irish, english) {
+    function qaAddWord(irish, english, pronunciation) {
       const irishWord = (irish || '').trim();
       const englishWord = (english || '').trim();
+      const pron = (pronunciation || '').trim();
       if (!irishWord || !englishWord) return 'incomplete';
       if (qaWordExists(englishWord)) return 'duplicate';
 
@@ -2537,6 +2634,7 @@
       const entry = {
         irish: irishWord,
         english: englishWord,
+        pronunciation: pron,
         timestamp,
         token: `${timestamp}-${Math.random().toString(36).slice(2, 8)}`
       };
@@ -2550,6 +2648,7 @@
         learning_timestamp: timestamp,
         url: buildFocloirUrl(englishWord),
         primary_translation: irishWord,
+        pronunciation: pron,
         tags: ['custom'],
         sr_step: 0
       }, ...(allWords || [])];
@@ -2644,11 +2743,12 @@
         if (!line) return;
 
         let parts = null;
+        // A third field is optional and is taken as the pronunciation.
         const eq = line.split(/\s*=\s*/);
-        if (eq.length === 2) parts = eq;
+        if (eq.length === 2 || eq.length === 3) parts = eq;
         else {
           const tab = line.split(/\t+/);
-          if (tab.length === 2) parts = tab;
+          if (tab.length === 2 || tab.length === 3) parts = tab;
         }
         if (!parts) {
           const comma = line.split(/\s*,\s*/);
@@ -2665,15 +2765,19 @@
         const b = parts[1].trim();
         if (!a || !b) { skipped.push(line); return; }
 
+        // Optional third column: pronunciation (IPA, respelling, whatever the
+        // user finds useful). Left off, it is simply blank.
+        const pron = parts.length >= 3 ? parts[2].trim() : '';
+
         const aIrish = qaLooksIrish(a);
         const bIrish = qaLooksIrish(b);
 
         // A fada on exactly one side is a reliable signal - trust it.
         // Otherwise fall back to whichever order the user selected.
-        if (aIrish && !bIrish) pairs.push({ irish: a, english: b });
-        else if (bIrish && !aIrish) pairs.push({ irish: b, english: a });
-        else if (qaBulkOrder === 'ir-first') pairs.push({ irish: a, english: b });
-        else pairs.push({ irish: b, english: a });
+        if (aIrish && !bIrish) pairs.push({ irish: a, english: b, pronunciation: pron });
+        else if (bIrish && !aIrish) pairs.push({ irish: b, english: a, pronunciation: pron });
+        else if (qaBulkOrder === 'ir-first') pairs.push({ irish: a, english: b, pronunciation: pron });
+        else pairs.push({ irish: b, english: a, pronunciation: pron });
       });
 
       return { pairs, skipped };
@@ -2695,7 +2799,7 @@
 
       let added = 0, dupes = 0;
       pairs.forEach(p => {
-        const result = qaAddWord(p.irish, p.english);
+        const result = qaAddWord(p.irish, p.english, p.pronunciation);
         if (result === 'ok') added++;
         else if (result === 'duplicate') dupes++;
       });
@@ -2820,6 +2924,29 @@ function getDueWords(wordsList) {
   });
 }
 
+
+    // Dedicated pronunciation write. Always sends the column so the user can
+    // clear a pronunciation by saving an empty value. The generic upserts
+    // deliberately omit it when blank so they cannot wipe another device's value.
+    async function syncPronunciation(word) {
+      if (!activeSession || !activeSession.access_token) return;
+      const value = (word.pronunciation || '').trim();
+
+      const resp = await fetch(
+        `${SUPABASE_URL}/rest/v1/flashcards?user_id=eq.${encodeURIComponent(activeSession.user_id)}` +
+        `&word=eq.${encodeURIComponent(word.word)}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${activeSession.access_token}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ pronunciation: value || null })
+      });
+
+      if (!resp.ok) throw new Error(await resp.text());
+    }
 
     async function syncWordProgress(word) {
       if (!activeSession || !activeSession.access_token) return;
@@ -3082,6 +3209,7 @@ function getDueWords(wordsList) {
 
       const senses = Array.isArray(word.senses) ? word.senses : [];
       const primaryTrans = word.primary_translation || senses[0]?.translations?.[0] || '—';
+      const pronunciation = (word.pronunciation || '').trim();
 
       const card = document.createElement('div');
       card.className = 'flashcard';
@@ -3110,8 +3238,37 @@ function getDueWords(wordsList) {
       back.innerHTML = `
     <div class="card-back-word">${escHtml(word.word)}</div>
     <div class="card-back-def">${escHtml(primaryTrans)}</div>
+    ${pronunciation ? `<div class="card-back-pronunciation">${escHtml(pronunciation)}</div>` : ''}
     ${sensesHtml}
+    <div class="card-pron-editor">
+      <input type="text" id="card-pron-input" class="card-pron-input"
+        placeholder="Add pronunciation..." value="${escHtml(pronunciation)}"
+        autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button type="button" class="card-pron-save" id="card-pron-save">Save</button>
+    </div>
   `;
+
+      // Pronunciation editor on the card back
+      const pronSaveBtn = back.querySelector('#card-pron-save');
+      const pronInput = back.querySelector('#card-pron-input');
+      const savePron = () => {
+        if (!pronInput) return;
+        word.pronunciation = pronInput.value.trim();
+        // Keep the mirrored camelCase field in step, like primary_translation
+        word.primaryPronunciation = word.pronunciation;
+        renderCard(index);
+        syncPronunciation(word)
+          .then(() => toast('Pronunciation saved!', 'success'))
+          .catch(() => toast('Pronunciation saved locally (sync failed)', 'error'));
+      };
+      if (pronSaveBtn) pronSaveBtn.addEventListener('click', (e) => { e.stopPropagation(); savePron(); });
+      if (pronInput) {
+        pronInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); savePron(); }
+        });
+        // Stop a tap in the field from flipping the card
+        pronInput.addEventListener('click', (e) => e.stopPropagation());
+      }
 
       card.appendChild(front);
       card.appendChild(back);
