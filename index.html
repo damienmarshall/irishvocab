@@ -1834,21 +1834,23 @@
         <p>Paste a list — one word pair per line, separated by <strong>=</strong>, a comma or a tab.</p>
       </div>
 
-      <div class="fada-bar" id="qa-fada-bar" aria-label="Irish vowel shortcuts"></div>
-
       <div class="fada-bar" style="margin-bottom:0.6rem;">
         <button type="button" class="fada-key" id="qa-order-en"
           style="min-width:auto; padding:0 0.9rem; font-size:0.85rem;">English ⇄ Irish</button>
         <button type="button" class="fada-key" id="qa-order-ir"
           style="min-width:auto; padding:0 0.9rem; font-size:0.85rem;">Irish ⇄ English</button>
+        <button type="button" class="quickadd-undo" id="qa-undo" disabled
+          style="margin-left:auto; min-height:44px;">↩ Undo</button>
       </div>
 
       <textarea id="qa-bulk-input" class="bulk-input" rows="9" autocapitalize="off" autocorrect="off"
         spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach&#10;&#10;One pair per line.&#10;Words with fadas are detected automatically."></textarea>
 
+      <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
+        style="margin-top:0.6rem;"></div>
+
       <div class="quickadd-footer">
         <span id="qa-bulk-status" class="quickadd-status" role="status" aria-live="polite"></span>
-        <button type="button" class="quickadd-undo" id="qa-undo" disabled>↩ Undo</button>
         <button type="button" class="btn btn-primary btn-sm" id="qa-bulk-add">Add all</button>
       </div>
     </div>
@@ -2452,8 +2454,15 @@
     const QA_QUEUE_KEY = 'quickadd_pending_queue';
     const QA_LAST_KEY = 'quickadd_last_saved';
 
-    // Lowercase Irish vowels with fadas - present in nearly every Irish word.
-    const FADA_KEYS = ['á', 'é', 'í', 'ó', 'ú'];
+    // Lowercase Irish vowels with fadas, plus the apostrophe (used constantly in
+    // words like lamhfhocal, ait, dosceal) and the comma - all awkward to reach
+    // on mobile without switching keyboards.
+    const FADA_KEYS = ['á', 'é', 'í', 'ó', 'ú', "'", ','];
+
+    const FADA_LABELS = {
+      "'": 'apostrophe',
+      ',': 'comma'
+    };
 
     let qaSyncTimer = null;
     let qaRefreshTimer = null;
@@ -2622,7 +2631,7 @@
         btn.type = 'button';
         btn.className = 'fada-key';
         btn.textContent = ch;
-        btn.setAttribute('aria-label', `Insert ${ch}`);
+        btn.setAttribute('aria-label', `Insert ${FADA_LABELS[ch] || ch}`);
 
         // Prevent blur so the on-screen keyboard stays open on mobile
         btn.addEventListener('mousedown', (e) => e.preventDefault());
