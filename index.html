@@ -1906,7 +1906,8 @@
     <div class="quickadd-panel" id="quickadd-panel">
       <div class="custom-card-header">
         <h3>Add words</h3>
-        <p>Paste a list — one word pair per line, separated by <strong>=</strong>, a comma or a tab.</p>
+        <p>Paste a list or a CSV — one pair per line using <strong>=</strong>, a comma or a tab.
+          Add a third column for pronunciation.</p>
       </div>
 
       <div class="fada-bar" style="margin-bottom:0.6rem;">
@@ -1917,7 +1918,7 @@
       </div>
 
       <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
-        spellcheck="false" placeholder="dog = madra&#10;cat = cat&#10;house = teach = /haus/&#10;&#10;One pair per line. Add a third &#10;column for pronunciation.&#10;Drag to enlarge."></textarea>
+        spellcheck="false" placeholder="dog = madra&#10;cat, cat&#10;house = teach = HOWS&#10;&#10;CSV works too:&#10;"dog","madra","MADR-RA"&#10;&#10;Third column = pronunciation.&#10;Drag to enlarge."></textarea>
 
       <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
         style="margin-top:0.6rem;"></div>
@@ -2742,8 +2743,12 @@
         const line = raw.trim();
         if (!line) return;
 
-        let parts = null;
+        // Strip surrounding quotes so a CSV pasted straight out of a
+        // spreadsheet ("dog","madra","MADR-RA") works unchanged.
+        const clean = (s) => String(s || '').replace(/^["']+|["']+$/g, '').trim();
+
         // A third field is optional and is taken as the pronunciation.
+        let parts = null;
         const eq = line.split(/\s*=\s*/);
         if (eq.length === 2 || eq.length === 3) parts = eq;
         else {
@@ -2751,23 +2756,25 @@
           if (tab.length === 2 || tab.length === 3) parts = tab;
         }
         if (!parts) {
+          // Comma is a full delimiter so a CSV can be pasted straight in.
           const comma = line.split(/\s*,\s*/);
-          if (comma.length === 2) parts = comma;
+          if (comma.length === 2 || comma.length === 3) parts = comma;
         }
         if (!parts) {
+          // Spaced hyphen only, so "t-athair" and respellings survive intact.
           const dash = line.split(/\s+-\s+/);
           if (dash.length === 2) parts = dash;
         }
 
         if (!parts) { skipped.push(line); return; }
 
-        const a = parts[0].trim();
-        const b = parts[1].trim();
+        const a = clean(parts[0]);
+        const b = clean(parts[1]);
         if (!a || !b) { skipped.push(line); return; }
 
-        // Optional third column: pronunciation (IPA, respelling, whatever the
-        // user finds useful). Left off, it is simply blank.
-        const pron = parts.length >= 3 ? parts[2].trim() : '';
+        // Optional third column: pronunciation. IPA, respelling, or whatever
+        // the user finds useful. Left off, it is simply blank.
+        const pron = parts.length >= 3 ? clean(parts[2]) : '';
 
         const aIrish = qaLooksIrish(a);
         const bIrish = qaLooksIrish(b);
