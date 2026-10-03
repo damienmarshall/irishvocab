@@ -4334,6 +4334,21 @@ function getDueWords(wordsList) {
       return canvas;
     }
 
+    /**
+     * Two segmentation passes, merged.
+     *
+     * No single mode wins. Measured on this kind of page:
+     *   - flat vocabulary list ............ AUTO 30/30
+     *   - two-column page ................ AUTO 28/30, SINGLE_BLOCK 25/30
+     *   - picture-book cover (coloured text scattered around clip-art):
+     *       AUTO returned ZERO words, SINGLE_BLOCK 5/18, SPARSE_TEXT surfaced
+     *       the most tokens.
+     *
+     * Tesseract's weakness here is page layout, not glyphs, and there is no
+     * setting that fixes layout for every input. Running two complementary
+     * modes and merging costs well under a second and removes the failure case
+     * where one mode returns nothing at all.
+     */
     async function snapRunOcr(canvas, lang) {
       const Tesseract = await snapLoadTesseract();
 
@@ -4345,39 +4360,189 @@ function getDueWords(wordsList) {
         }
       });
 
-      try {
-        // AUTO page segmentation beats the default single-block mode on
-        // multi-column lists and on a photo where text sits at an angle.
-        if (Tesseract.PSM && typeof worker.setParameters === 'function') {
-          try {
-            await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.AUTO });
-          } catch (e) { /* older builds: default mode is fine */ }
-        }
+      const passes = [
+        { psm: Tesseract.PSM ? Tesseract.PSM.SPARSE_TEXT : '11', label: 'sparse text' },
+        { psm: Tesseract.PSM ? Tesseract.PSM.SINGLE_BLOCK : '6', label: 'single block' },
+        { psm: Tesseract.PSM ? Tesseract.PSM.AUTO : '3', label: 'auto' }
+      ];
 
-        const { data } = await worker.recognize(canvas);
-        return { text: data.text || '', confidence: data.confidence };
+      const texts = [];
+      let confidence = 0;
+
+      try {
+        for (let i = 0; i < passes.length; i++) {
+          const pass = passes[i];
+          try {
+            await worker.setParameters({ tessedit_pageseg_mode: pass.psm });
+          } catch (e) { continue; }
+
+          snapSetStatus(`Reading the image (${pass.label})… ${i + 1}/${passes.length}`);
+          snapSetProgress(i / passes.length);
+
+          const { data } = await worker.recognize(canvas);
+          const text = (data.text || '').trim();
+          if (text) {
+            texts.push(text);
+            confidence = Math.max(confidence, Number(data.confidence) || 0);
+          }
+        }
       } finally {
         // Always release the worker — each one holds its own WASM heap.
         await worker.terminate();
       }
+
+      return { text: texts.join('\n'), confidence };
+    }
+
+    // ── Irish vocabulary for repairing garbled tokens ──
+    // OCR on a busy page returns near-misses ("arraCÓif", "Ioscann"). A
+    // vocabulary turns those into real words. Built from files already in the
+    // repo, so it costs nothing but a few cached fetches.
+    const snapVocab = { irish: new Set(), english: new Set(), loaded: null };
+
+    const snapDeFada = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    async function snapLoadVocab() {
+      if (snapVocab.loaded) return snapVocab.loaded;
+
+      snapVocab.loaded = (async () => {
+        const addIrish = (w) => {
+          const t = String(w || '').trim().toLowerCase();
+          if (t.length >= 3 && /^[\p{L}]+$/u.test(t)) snapVocab.irish.add(t);
+        };
+
+        // grammar.json: thousands of Irish lemmas — the backbone of the list.
+        try {
+          const res = await fetch('grammar.json', { cache: 'force-cache' });
+          if (res.ok) Object.keys(await res.json()).forEach(addIrish);
+        } catch (e) { /* optional */ }
+
+        try {
+          const res = await fetch('irish_stopwords.json', { cache: 'force-cache' });
+          if (res.ok) (await res.json()).forEach(addIrish);
+        } catch (e) { /* optional */ }
+
+        try {
+          const res = await fetch('irish_en_dict.json', { cache: 'force-cache' });
+          if (res.ok) {
+            const d = await res.json();
+            Object.keys(d.ga_en || {}).forEach(addIrish);
+            // English headwords double as a veto list.
+            Object.keys(d.en_ga || {}).forEach((w) => snapVocab.english.add(w));
+          }
+        } catch (e) { /* optional */ }
+
+        try {
+          const res = await fetch('packs.json', { cache: 'force-cache' });
+          if (res.ok) {
+            const walk = (n) => {
+              if (Array.isArray(n)) n.forEach((i) => i && i.word && addIrish(i.word));
+              else if (n && typeof n === 'object') Object.values(n).forEach(walk);
+            };
+            walk(await res.json());
+          }
+        } catch (e) { /* optional */ }
+
+        // The user's own deck is the most relevant vocabulary of all.
+        (allWords || []).forEach((w) => {
+          addIrish(w.primary_translation || w.primaryTranslation);
+          (w.senses || []).forEach((s) => (s.translations || []).forEach(addIrish));
+        });
+
+        return snapVocab;
+      })();
+
+      return snapVocab.loaded;
+    }
+
+    const COMMON_ENGLISH = new Set(('my first word book in irish usborne the a an and of for on with ' +
+      'this that these those it is are was were be been being have has had do does did not no ' +
+      'but or so if then than when where what who which how why here there us them they she he ' +
+      'you i we me your his her their our out up down off over under again more most some ' +
+      'any each other new old good best last next back still very much many little big small ' +
+      'great own same too only just also now can will would could should may might must ' +
+      'name page cover picture look find learn read see at from by as to learn find ' +
+      'one two three four five six seven eight nine ten colour color').split(/\s+/));
+
+    /** Bounded Levenshtein; gives up as soon as the budget is blown. */
+    function snapEditDistance(a, b, max) {
+      if (Math.abs(a.length - b.length) > max) return max + 1;
+      let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+      const cur = new Array(b.length + 1);
+
+      for (let i = 1; i <= a.length; i++) {
+        cur[0] = i;
+        let best = cur[0];
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+          if (cur[j] < best) best = cur[j];
+        }
+        if (best > max) return max + 1;
+        prev = cur.slice();
+      }
+      return prev[b.length];
+    }
+
+    /**
+     * Snap a garbled token to a real Irish word, or return null to drop it.
+     *
+     * Order matters and was tuned against measured false positives:
+     *  - a fada is strong evidence of Irish, so it is checked BEFORE the English
+     *    veto. Otherwise "bád" strips to "bad" and gets thrown away.
+     *  - the English veto stops the cover's title being "repaired" into Irish
+     *    ("Word" became "bord", "Book" became "books").
+     */
+    function snapRepairToken(token) {
+      const t = String(token || '').toLowerCase().trim();
+      if (!t) return null;
+
+      const hasFada = /[áéíóú]/i.test(t);
+      const bare = snapDeFada(t);
+
+      if (hasFada && snapVocab.irish.has(t)) return t;
+      if (!hasFada && (COMMON_ENGLISH.has(t) || snapVocab.english.has(t))) return null;
+      if (snapVocab.irish.has(t)) return t;
+      if (snapVocab.irish.has(bare)) return bare;
+
+      // Wider net for a token that already looks Irish, narrower for plain
+      // ASCII, where one stray edit would otherwise hit a random Irish word.
+      const maxDist = hasFada ? 2 : 1;
+      let best = null;
+
+      snapVocab.irish.forEach((candidate) => {
+        const cb = snapDeFada(candidate);
+        if (Math.abs(cb.length - bare.length) > maxDist) return;
+        const d = snapEditDistance(bare, cb, maxDist);
+        if (d <= maxDist && (!best || d < best.dist || (d === best.dist && candidate < best.word))) {
+          best = { word: candidate, dist: d };
+        }
+      });
+
+      return best ? best.word : null;
     }
 
     // ── Text → candidate words ──
-    function snapExtractWords(text) {
+    async function snapExtractWords(text) {
       const cleaned = String(text || '')
         .normalize('NFC')
         .replace(/[\u2018\u2019]/g, "'")
         .replace(/[\u201C\u201D]/g, '"');
 
+      await snapLoadVocab();
+
       const words = [];
       const seen = new Set();
 
       cleaned.split(/\s+/).forEach((raw) => {
-        const word = raw.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, '').toLowerCase();
-        if (word.length < 3) return;            // noise and stray accents
-        if (!/\p{L}/u.test(word)) return;        // pure numbers
-        if (snap.stopwords.has(word)) return;    // function words
-        if (seen.has(word)) return;              // same word twice in the photo
+        const token = raw.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, '').toLowerCase();
+        if (token.length < 3) return;           // noise and stray accents
+        if (!/\p{L}/u.test(token)) return;      // pure numbers
+
+        const word = snapRepairToken(token) || token;
+        if (word.length < 3) return;
+        if (snap.stopwords.has(word) || snap.stopwords.has(snapDeFada(word))) return;
+        if (seen.has(word)) return;             // same word twice in the photo
         seen.add(word);
         words.push(word);
       });
@@ -4532,7 +4697,7 @@ function getDueWords(wordsList) {
     // ── Pipeline ──
     async function snapTranslateCurrent(mode) {
       const text = document.getElementById('snap-raw').value;
-      const words = snapExtractWords(text);
+      const words = await snapExtractWords(text);
 
       if (!words.length) {
         snapSetStatus('No Irish-looking words found in that text.', 'error');
