@@ -447,6 +447,78 @@
       color: var(--primary);
     }
 
+    /* ── "You were signed in before" notice ──
+       Shown when this visitor synced with Supabase before but has no session
+       now. Deliberately NOT a persistent highlight: someone may have signed
+       out on purpose, and nagging them about it would be worse than saying
+       nothing. A single dismissible line, never shown again once dismissed,
+       and deliberately static so it cannot nag. */
+    .sync-nudge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.7rem 0.9rem;
+      background: rgba(0, 154, 68, 0.08);
+      border: 1px solid rgba(0, 154, 68, 0.25);
+      border-radius: 14px;
+      font-size: 0.82rem;
+      color: var(--text-main);
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .sync-nudge.hidden {
+      display: none;
+    }
+
+    .sync-nudge-text {
+      line-height: 1.4;
+      text-align: left;
+    }
+
+    .sync-nudge-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-shrink: 0;
+    }
+
+    .sync-nudge-signin {
+      padding: 0.35rem 0.8rem;
+      border: none;
+      border-radius: 50px;
+      background: var(--primary);
+      color: white;
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .sync-nudge-signin:hover {
+      background: var(--primary-dark);
+    }
+
+    .sync-nudge-dismiss {
+      width: 26px;
+      height: 26px;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      line-height: 1;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .sync-nudge-dismiss:hover {
+      background: rgba(0, 0, 0, 0.06);
+      color: var(--text-main);
+    }
+
     /* ── Dashboard (logged-in view) ── */
     #section-dashboard {
       padding: 2rem;
@@ -586,6 +658,7 @@
       width: 100%;
       height: 100%;
       backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -593,8 +666,20 @@
       padding: 2rem;
       border-radius: var(--radius-card);
       background: var(--card-bg);
-      backdrop-filter: blur(10px);
       border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+
+    /* NO backdrop-filter on the faces, deliberately.
+
+       A backdrop-filter creates a stacking context and flattens the 3D
+       rendering context. In Firefox that stops backface-visibility being
+       honoured and the front face disappears, leaving a blank card. --card-bg
+       is already a translucent white, so the blur bought almost nothing.
+
+       Both faces also carry an explicit transform rather than relying on the
+       default, which is more reliable across Chrome, Firefox and Safari. */
+    .card-front {
+      transform: rotateY(0deg);
     }
 
     .card-back {
@@ -1414,6 +1499,20 @@
       pointer-events: none;
     }
 
+    /* Pronunciation - only rendered inside the expanded item body, so it can
+       never give the answer away while the card is still collapsed. */
+    .sr-review-pronunciation {
+      display: inline-block;
+      margin-top: 0.35rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--primary);
+      background: #f0f7f4;
+      border: 1px solid rgba(0, 154, 68, 0.12);
+      border-radius: 8px;
+      padding: 0.25rem 0.5rem;
+    }
+
     .sr-review-item-header {
       padding: 1rem 1.2rem;
       display: flex;
@@ -1901,6 +2000,7 @@
         width: 100%;
         height: 100%;
         backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -1911,7 +2011,9 @@
         border: 1px solid rgba(0, 154, 68, 0.15);
     }
 
+    /* Explicit transform on the front, for the same cross-browser reason. */
     .mini-card-front {
+        transform: rotateY(0deg);
         background: #ffffff;
         color: var(--text-main);
     }
@@ -2022,6 +2124,17 @@
 
   <!-- ── Auth Card (shown when logged out) ── -->
   <section id="section-auth">
+    <!-- One-time nudge: this visitor synced before but has no session now.
+         Dismissible, and never shown again. -->
+    <div class="sync-nudge hidden" id="sync-nudge" role="status">
+      <span class="sync-nudge-text">☁️ You were signed in before &mdash; sign in to resume syncing.</span>
+      <span class="sync-nudge-actions">
+        <button type="button" class="sync-nudge-signin" id="sync-nudge-signin">Sign in</button>
+        <button type="button" class="sync-nudge-dismiss" id="sync-nudge-dismiss"
+          aria-label="Dismiss and do not show again">&times;</button>
+      </span>
+    </div>
+
     <div class="auth-card" id="auth-card">
       <div style="font-size:2.4rem">🍀</div>
       <div>
@@ -2332,6 +2445,85 @@
       } catch { }
       return null;
     }
+    /**
+     * Did this visitor ever sign in / sync with Supabase?
+     *
+     * The sticky flag only covers everyone from now on. A visitor who signed
+     * in BEFORE this flag existed would otherwise look exactly like a brand
+     * new arrival and never notice their cards stopped backing up. So backfill
+     * from what an older build leaves behind: a saved session, a stored
+     * Supabase config, or having already dismissed the first-run disclaimer -
+     * which only ever appears on the way into the sign-in flow.
+     */
+    function hasEverSynced() {
+      try {
+        if (localStorage.getItem('ever_synced') === '1') return true;
+        const raw = localStorage.getItem('sb_session');
+        if (raw && JSON.parse(raw)?.user_id) return true;
+        if (localStorage.getItem('supabase_disclaimer_seen') === '1') return true;
+      } catch (e) { /* private mode */ }
+      return false;
+    }
+
+    /** Sticky marker so we can still recognise this visitor after sign-out. */
+    function markEverSynced() {
+      try {
+        localStorage.setItem('ever_synced', '1');
+        localStorage.setItem('last_synced_at', String(Date.now()));
+      } catch (e) { /* private mode */ }
+    }
+
+    function isSyncNudgeDismissed() {
+      try {
+        return localStorage.getItem('sync_nudge_dismissed') === '1';
+      } catch (e) { /* private mode */ }
+      return false;
+    }
+
+    /**
+     * Signing in means any earlier dismissal no longer applies.
+     *
+     * Without this, dismissing the notice once would suppress it forever - so
+     * a visitor who dismissed it, signed in, then later signed out again by
+     * accident would never be told a second time. Clearing on sign-in makes
+     * each sign-out its own fresh event, while still keeping the notice to
+     * once per sign-out.
+     */
+    function clearSyncNudgeDismissed() {
+      try { localStorage.removeItem('sync_nudge_dismissed'); } catch (e) { /* private mode */ }
+    }
+
+    /**
+     * Show the one-time "you were signed in before" notice.
+     *
+     * Intentionally a dismissible line rather than a permanent highlight:
+     * someone may have signed out on purpose, and nagging them about it would
+     * be worse than saying nothing. Once dismissed it never appears again.
+     */
+    function updateSyncNudge(everSynced) {
+      const nudge = document.getElementById('sync-nudge');
+      if (!nudge) return;
+      nudge.classList.toggle('hidden', !everSynced || isSyncNudgeDismissed());
+    }
+
+    /** Wires the notice's two buttons. Safe to call more than once. */
+    function initSyncNudge() {
+      const dismissBtn = document.getElementById('sync-nudge-dismiss');
+      const signinBtn = document.getElementById('sync-nudge-signin');
+      if (!dismissBtn || dismissBtn.dataset.wired) return;
+
+      dismissBtn.dataset.wired = '1';
+      dismissBtn.addEventListener('click', () => {
+        const nudge = document.getElementById('sync-nudge');
+        if (nudge) nudge.classList.add('hidden');
+        try { localStorage.setItem('sync_nudge_dismissed', '1'); } catch (e) { /* private mode */ }
+      });
+
+      if (signinBtn) {
+        signinBtn.addEventListener('click', startGoogleLoginWithDisclaimer);
+      }
+    }
+
     function clearSession() {
       localStorage.removeItem('sb_session');
       localStorage.removeItem('sb_pkce_verifier');
@@ -2587,7 +2779,11 @@
       document.getElementById('nav-user-info').style.display = 'none';
       document.getElementById('nav-logout-btn').style.display = 'none';
       document.getElementById('auth-google-btn').disabled = false;
-      setAuthStatus('');
+
+      // Signed out. If this visitor synced before, that is a silent change of
+      // state they are unlikely to notice, so draw the eye to the sign-in
+      // buttons and say plainly what happened.
+      updateSyncNudge(hasEverSynced());
     }
 
     // ───────────────────────────────────────────────
@@ -2650,6 +2846,12 @@
       document.getElementById('nav-logout-btn').style.display = 'inline-flex';
       document.getElementById('nav-email').textContent = session.email || 'you';
       activeSession = session;
+
+      // Signed in means backed up. Record it stickily so a later sign-out can
+      // be recognised, and take down any "you were signed in before" notice.
+      markEverSynced();
+      clearSyncNudgeDismissed();
+      updateSyncNudge(false);
 
       console.log(session)
 
@@ -3256,6 +3458,14 @@ function getDueWords(wordsList) {
 
         const learned = new Date(w.learningTimestamp || w.learning_timestamp || w.timestamp).toLocaleDateString();
 
+        // Pronunciation is optional. It only appears once the item is
+        // expanded - showing it in the collapsed header would give the
+        // answer away before the user has recalled the word.
+        const pronunciation = (w.pronunciation || '').trim();
+        const pronHtml = pronunciation
+          ? `<span class="sr-review-pronunciation">${escHtml(pronunciation)}</span>`
+          : '';
+
         return `
           <div class="sr-review-item" data-word="${escHtml(w.word)}" id="sr-item-${idx}">
             <div class="sr-review-item-header">
@@ -3273,6 +3483,7 @@ function getDueWords(wordsList) {
             <div class="sr-review-item-body">
               <div class="sr-review-item-details">
                 ${sensesHtml}
+                ${pronHtml}
                 <div class="sr-review-meta">First learned: ${learned} | Current Level: ${w.srStep || w.sr_step || 0}/5</div>
               </div>
             </div>
@@ -4249,6 +4460,7 @@ function getDueWords(wordsList) {
     document.getElementById('hero-signin-btn').addEventListener('click', startGoogleLoginWithDisclaimer);
     document.getElementById('nav-logout-btn').addEventListener('click', signOut);
     qaInit();
+    initSyncNudge();
 
     document.getElementById('dash-daily-sceal-btn').addEventListener('click', toggleDailySceal);
     document.getElementById('dash-vocab-packs-btn').addEventListener('click', openPacksModal);
