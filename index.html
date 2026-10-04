@@ -776,8 +776,10 @@
       text-align: center;
     }
 
-    /* Word grid */
-    .word-grid-section h3 {
+    /* Word grid. The Library tab dropped the old .word-grid-section wrapper, so
+       the heading is now a direct child of the panel. */
+    .word-grid-section h3,
+    #panel-library h3 {
       font-size: 1.1rem;
       font-weight: 700;
       margin-bottom: 1rem;
@@ -913,6 +915,167 @@
       box-shadow: var(--shadow);
       border: 1px solid rgba(255, 255, 255, 0.6);
       margin-bottom: 1.5rem;
+    }
+
+    /* ── Dashboard tabs ──
+       Four short screens instead of one long page. The bar is sticky so
+       switching never needs a scroll back up. */
+    .dash-tabs {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      display: flex;
+      gap: 0.25rem;
+      margin: 0 -0.4rem 1.1rem;
+      padding: 0.4rem 0.4rem 0;
+      background: rgba(240, 247, 244, 0.94);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(0, 154, 68, 0.12);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .dash-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .dash-tab {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      padding: 0.6rem 0.4rem;
+      border: none;
+      border-radius: 12px 12px 0 0;
+      background: transparent;
+      color: var(--text-muted);
+      font: inherit;
+      /* 16px stops iOS zooming the page when the tab is tapped. */
+      font-size: 0.85rem;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .dash-tab[aria-selected="true"] {
+      background: white;
+      color: var(--primary-dark);
+      box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .dash-tab:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
+    }
+
+    /* Badge on the Review tab: the due count is the reason to switch. */
+    .tab-badge {
+      display: none;
+      min-width: 18px;
+      padding: 0 5px;
+      border-radius: 9px;
+      background: var(--secondary);
+      color: #fff;
+      font-size: 0.65rem;
+      line-height: 18px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .tab-badge.show {
+      display: inline-block;
+    }
+
+    .tab-panel[hidden] {
+      display: none !important;
+    }
+
+    /* Header actions that belong to one tab rather than to every screen. */
+    .dash-subactions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .dash-subactions .btn {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    /* Stop the three header buttons overflowing on a phone. */
+    .dash-header-actions {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex: 0 0 auto;
+    }
+
+    @media (max-width: 600px) {
+      .dash-header {
+        flex-wrap: wrap;
+      }
+
+      .dash-header-actions {
+        width: 100%;
+      }
+
+      .dash-header-actions .btn {
+        flex: 1;
+      }
+    }
+
+    /* ── Spaced repetition: stop the three actions overflowing ──
+       Four controls (Got it / I forgot / I know it / expand) sat in one flex
+       row, which cannot fit a 320px phone. Stack the header and give the three
+       actions an equal-width grid so they always fit. */
+    @media (max-width: 600px) {
+      .sr-review-item-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.7rem;
+        padding: 0.9rem 1rem;
+      }
+
+      .sr-review-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.4rem;
+        width: 100%;
+      }
+
+      /* The expand chevron is not one of the three choices, so it sits above
+         the grid instead of competing for a column. */
+      .sr-review-expand-btn {
+        position: absolute;
+        top: 0.6rem;
+        right: 0.6rem;
+        padding: 0.2rem 0.45rem;
+      }
+
+      .sr-review-item-header {
+        position: relative;
+        padding-right: 2.2rem;
+      }
+
+      .sr-ack-btn,
+      .sr-forgot-btn,
+      .sr-master-btn {
+        padding: 0.6rem 0.3rem;
+        font-size: 0.78rem;
+        /* Without this a long label like "I know it" refuses to shrink and
+           pushes the grid wider than the screen. */
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: center;
+      }
     }
 
     /* Fada / vowel shortcut bar */
@@ -1888,81 +2051,105 @@
     </div>
   </section>
 
-  <!-- ── Dashboard (logged-in) ── -->
+<!-- ── Dashboard (logged-in) ── -->
   <section id="section-dashboard">
     <div class="dash-header">
       <div>
         <h2 id="dash-greeting">Your Flashcards</h2>
         <p id="dash-sub">Loading your words…</p>
       </div>
-      <div style="display:flex; gap: 0.5rem; align-items:center;">
-        <button id="dash-daily-sceal-btn" class="btn btn-outline btn-sm">📅 Enable Daily Scéal</button>
-        <button id="dash-vocab-packs-btn" class="btn btn-primary btn-sm">📚 Vocab Packs</button>
+      <div class="dash-header-actions">
         <button id="dash-sync-btn" class="btn btn-outline btn-sm">↻ Sync now</button>
       </div>
     </div>
 
-    <!-- Quick Add: bulk word entry -->
-    <div class="quickadd-panel" id="quickadd-panel">
-      <div class="custom-card-header">
-        <h3>Add words</h3>
-        <p>Paste a list or a CSV — one pair per line using <strong>=</strong>, a comma or a tab.
-          Add a third column for pronunciation.</p>
-      </div>
-
-      <div class="fada-bar" style="margin-bottom:0.6rem;">
-        <button type="button" class="fada-key" id="qa-order-en"
-          style="min-width:auto; padding:0 0.55rem; font-size:0.78rem;">English ⇄ Irish</button>
-        <button type="button" class="fada-key" id="qa-order-ir"
-          style="min-width:auto; padding:0 0.55rem; font-size:0.78rem;">Irish ⇄ English</button>
-      </div>
-
-      <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
-        spellcheck="false" placeholder="dog = madra&#10;cat, cat&#10;house = teach = HOWS&#10;&#10;CSV works too:&#10;"dog","madra","MADR-RA"&#10;&#10;Third column = pronunciation.&#10;Drag to enlarge."></textarea>
-
-      <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
-        style="margin-top:0.6rem;"></div>
-
-      <div class="quickadd-footer">
-        <span id="qa-bulk-status" class="quickadd-status" role="status" aria-live="polite"></span>
-        <button type="button" class="btn btn-primary btn-sm" id="qa-bulk-add">Add all</button>
-      </div>
+    <!-- Four short screens instead of one long page -->
+    <div class="dash-tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="dash-tab" role="tab" id="tab-btn-add" data-tab="add"
+        aria-controls="panel-add" aria-selected="false">Add words</button>
+      <button class="dash-tab" role="tab" id="tab-btn-review" data-tab="review"
+        aria-controls="panel-review" aria-selected="false">Review<span class="tab-badge"
+          id="tab-badge-review" aria-live="polite"></span></button>
+      <button class="dash-tab" role="tab" id="tab-btn-cards" data-tab="cards"
+        aria-controls="panel-cards" aria-selected="false">Cards</button>
+      <button class="dash-tab" role="tab" id="tab-btn-library" data-tab="library"
+        aria-controls="panel-library" aria-selected="false">Library</button>
     </div>
 
-    <div class="spaced-rep-panel" id="spaced-rep-panel">
-      <div class="custom-card-header">
-        <h3>Spaced repetition</h3>
-        <p>Review the words that are due and keep your progress synced.</p>
+    <!-- ── Add words ── -->
+    <div class="tab-panel" id="panel-add" role="tabpanel" aria-labelledby="tab-btn-add" data-panel="add">
+      <div class="dash-subactions">
+        <button id="dash-daily-sceal-btn" class="btn btn-outline btn-sm">📅 Enable Daily Scéal</button>
+        <button id="dash-vocab-packs-btn" class="btn btn-primary btn-sm">📚 Vocab Packs</button>
       </div>
-      <div id="spaced-rep-status" class="spaced-rep-status">Loading review queue…</div>
-      <div id="spaced-rep-list" class="spaced-rep-list"></div>
-    </div>
 
-    <!-- Flashcard viewer -->
-    <div class="viewer-section" id="viewer-section">
-      <div class="loading-state" id="viewer-loading">
-        <div class="spinner"></div>
-        Loading your words…
-      </div>
-      <div id="card-wrapper" style="display:none; width:100%; display:none; flex-direction:column; align-items:center;">
-        <div class="card-container" id="card-container">
-          <!-- rendered by JS -->
+      <!-- Quick Add: bulk word entry -->
+      <div class="quickadd-panel" id="quickadd-panel">
+        <div class="custom-card-header">
+          <h3>Add words</h3>
+          <p>Paste a list or a CSV — one pair per line using <strong>=</strong>, a comma or a tab.
+            Add a third column for pronunciation.</p>
         </div>
-        <div class="card-controls">
-          <button id="prev-btn" class="nav-btn" disabled>← Prev</button>
-          <span class="card-counter" id="card-counter"></span>
-          <button id="next-btn" class="nav-btn" disabled>Next →</button>
+
+        <div class="fada-bar" style="margin-bottom:0.6rem;">
+          <button type="button" class="fada-key" id="qa-order-en"
+            style="min-width:auto; padding:0 0.55rem; font-size:0.78rem;">English ⇄ Irish</button>
+          <button type="button" class="fada-key" id="qa-order-ir"
+            style="min-width:auto; padding:0 0.55rem; font-size:0.78rem;">Irish ⇄ English</button>
+        </div>
+
+        <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
+          spellcheck="false" placeholder="dog = madra&#10;cat, cat&#10;house = teach = HOWS&#10;&#10;CSV works too:&#10;"dog","madra","MADR-RA"&#10;&#10;Third column = pronunciation.&#10;Drag to enlarge."></textarea>
+
+        <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
+          style="margin-top:0.6rem;"></div>
+
+        <div class="quickadd-footer">
+          <span id="qa-bulk-status" class="quickadd-status" role="status" aria-live="polite"></span>
+          <button type="button" class="btn btn-primary btn-sm" id="qa-bulk-add">Add all</button>
         </div>
       </div>
-      <div class="empty-state" id="viewer-empty" style="display:none;">
-        <p>No words yet! Install the <strong>Chrome extension</strong> and browse<br>
-          <a href="https://www.focloir.ie" target="_blank">focloir.ie</a> to start building your vocabulary.
-        </p>
+    </div>
+
+    <!-- ── Review ── -->
+    <div class="tab-panel" id="panel-review" role="tabpanel" aria-labelledby="tab-btn-review" data-panel="review">
+      <div class="spaced-rep-panel" id="spaced-rep-panel">
+        <div class="custom-card-header">
+          <h3>Spaced repetition</h3>
+          <p>Review the words that are due and keep your progress synced.</p>
+        </div>
+        <div id="spaced-rep-status" class="spaced-rep-status">Loading review queue…</div>
+        <div id="spaced-rep-list" class="spaced-rep-list"></div>
       </div>
     </div>
 
-    <!-- Word grid -->
-    <div class="word-grid-section" style="margin-top:2rem">
+    <!-- ── Cards ── -->
+    <div class="tab-panel" id="panel-cards" role="tabpanel" aria-labelledby="tab-btn-cards" data-panel="cards">
+      <div class="viewer-section" id="viewer-section">
+        <div class="loading-state" id="viewer-loading">
+          <div class="spinner"></div>
+          Loading your words…
+        </div>
+        <div id="card-wrapper" style="display:none; width:100%; display:none; flex-direction:column; align-items:center;">
+          <div class="card-container" id="card-container">
+            <!-- rendered by JS -->
+          </div>
+          <div class="card-controls">
+            <button id="prev-btn" class="nav-btn" disabled>← Prev</button>
+            <span class="card-counter" id="card-counter"></span>
+            <button id="next-btn" class="nav-btn" disabled>Next →</button>
+          </div>
+        </div>
+        <div class="empty-state" id="viewer-empty" style="display:none;">
+          <p>No words yet! Install the <strong>Chrome extension</strong> and browse<br>
+            <a href="https://www.focloir.ie" target="_blank">focloir.ie</a> to start building your vocabulary.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Library ── -->
+    <div class="tab-panel" id="panel-library" role="tabpanel" aria-labelledby="tab-btn-library" data-panel="library">
       <h3>All Words</h3>
       <div class="word-grid" id="word-grid"></div>
     </div>
@@ -3040,6 +3227,11 @@ function getDueWords(wordsList) {
       const panel = document.getElementById('spaced-rep-panel');
       const statusEl = document.getElementById('spaced-rep-status');
       const listEl = document.getElementById('spaced-rep-list');
+
+      // Keep the tab badge in step with the panel, so the due count is visible
+      // without opening the Review tab.
+      if (typeof updateReviewBadge === 'function') updateReviewBadge();
+
       if (!panel || !statusEl || !listEl) return;
 
       const dueWords = getDueWords(allWords);
@@ -3347,7 +3539,12 @@ function getDueWords(wordsList) {
     }
 
     function renderWordGrid(words) {
+      // Built lazily: on a large deck this is thousands of nodes that would
+      // otherwise be created during startup only to sit hidden.
+      if (!libraryRendered) return;
+
       const grid = document.getElementById('word-grid');
+      if (!grid) return;
       grid.innerHTML = '';
       if (!words.length) { grid.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem">No words yet.</p>'; return; }
       words.forEach((word, i) => {
@@ -3363,7 +3560,11 @@ function getDueWords(wordsList) {
           currentIndex = i;
           renderCard(currentIndex);
           updateNavButtons();
-          document.getElementById('viewer-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // The viewer lives on another tab now, so switch to it rather than
+          // scrolling to something that is not on screen.
+          setActiveTab('cards');
+          const viewer = document.getElementById('viewer-section');
+          if (viewer) viewer.scrollIntoView({ behavior: 'smooth', block: 'start' });
           // Auto-reveal the translation when selecting from the grid to match dashboard behavior
           setTimeout(() => {
             const fc = document.querySelector('.flashcard');
@@ -3858,7 +4059,160 @@ function getDueWords(wordsList) {
     // ───────────────────────────────────────────────
     // BOOT
     // ───────────────────────────────────────────────
+    // DASHBOARD TABS
+    // ───────────────────────────────────────────────
+    // Four short screens rather than one long page. Which tab was last open is
+    // remembered, because people reopen the app to do a specific job and landing
+    // on the wrong screen costs them a tap every time.
+    const TAB_KEY = 'irish_learner_tab';
+    const TABS = ['add', 'review', 'cards', 'library'];
+
+    let activeTab = null;
+    let libraryRendered = false;
+    const tabScroll = {};
+
+    function readHashTab() {
+      const raw = (location.hash || '').replace(/^#/, '');
+      return TABS.includes(raw) ? raw : null;
+    }
+
+    /** Pure UI: show one panel, hide the rest. Never touches the URL. */
+    function applyTab(name) {
+      TABS.forEach((t) => {
+        const btn = document.querySelector(`.dash-tab[data-tab="${t}"]`);
+        const panel = document.querySelector(`.tab-panel[data-panel="${t}"]`);
+        if (btn) btn.setAttribute('aria-selected', String(t === name));
+        if (panel) {
+          // `hidden` rather than a CSS class: it removes the panel from the
+          // accessibility tree and stops it intercepting taps.
+          if (t === name) panel.removeAttribute('hidden');
+          else panel.setAttribute('hidden', '');
+        }
+      });
+    }
+
+    function setActiveTab(name) {
+      if (!TABS.includes(name) || name === activeTab) return;
+
+      // Remember where we were leaving from so returning feels continuous.
+      if (activeTab) tabScroll[activeTab] = window.scrollY;
+
+      applyTab(name);
+      activeTab = name;
+
+      try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* private mode */ }
+
+      // The Library grid can be thousands of nodes; build it on first open only.
+      if (name === 'library' && !libraryRendered) {
+        libraryRendered = true;
+        if (typeof activeWords !== 'undefined') renderWordGrid(activeWords);
+      }
+
+      // Update the URL without adding history entries, so the browser Back
+      // button still leaves the page rather than walking backwards through tabs.
+      if (readHashTab() !== name) history.replaceState(null, '', `#${name}`);
+
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: tabScroll[name] || 0, behavior: 'auto' });
+      });
+    }
+
+    function updateReviewBadge() {
+      const badge = document.getElementById('tab-badge-review');
+      if (!badge) return;
+
+      let due = 0;
+      try { due = getDueWords(allWords).length; } catch (e) { due = 0; }
+
+      if (due > 0) {
+        badge.textContent = due > 99 ? '99+' : String(due);
+        badge.classList.add('show');
+        badge.setAttribute('aria-label', `${due} words due for review`);
+      } else {
+        badge.textContent = '';
+        badge.classList.remove('show');
+        badge.removeAttribute('aria-label');
+      }
+    }
+
+    function initTabs() {
+      const bar = document.querySelector('.dash-tabs');
+      if (!bar) return;
+
+      bar.addEventListener('click', (e) => {
+        const btn = e.target.closest('.dash-tab');
+        if (btn) setActiveTab(btn.dataset.tab);
+      });
+
+      // A shared or bookmarked #review link should win over the remembered tab.
+      window.addEventListener('hashchange', () => {
+        const t = readHashTab();
+        if (t && t !== activeTab) setActiveTab(t);
+      });
+
+      let stored = null;
+      try { stored = localStorage.getItem(TAB_KEY); } catch (e) { /* private mode */ }
+      const start = readHashTab() || (TABS.includes(stored) ? stored : 'add');
+
+      activeTab = null;             // force applyTab to run
+      applyTab(start);
+      activeTab = start;
+      history.replaceState(null, '', `#${start}`);
+
+      updateReviewBadge();
+    }
+
+    /** The bulk textarea grows with its content so "Add all" stays reachable. */
+    function initBulkAutoGrow() {
+      const ta = document.getElementById('qa-bulk-input');
+      if (!ta) return;
+
+      const grow = () => {
+        ta.style.height = 'auto';
+        ta.style.height = `${Math.min(Math.max(ta.scrollHeight, 130), 420)}px`;
+      };
+
+      ta.addEventListener('input', grow);
+      grow();
+    }
+
+    /** Swipe left/right to move between cards — it is a phone, mostly. */
+    function initCardSwipe() {
+      const panel = document.getElementById('viewer-section');
+      if (!panel) return;
+
+      let startX = null;
+      let startY = null;
+
+      panel.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) { startX = null; return; }
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+      }, { passive: true });
+
+      panel.addEventListener('touchend', (e) => {
+        if (startX === null) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - startX;
+        const dy = t.clientY - startY;
+        startX = null;
+
+        // Only a clearly horizontal swipe should flip the card, otherwise a
+        // vertical flick to scroll would change the card too.
+        if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+        const target = dx < 0
+          ? document.getElementById('next-btn')
+          : document.getElementById('prev-btn');
+        if (target && !target.disabled) target.click();
+      }, { passive: true });
+    }
+
+    // ───────────────────────────────────────────────
     async function boot() {
+      initTabs();
+      initBulkAutoGrow();
+      initCardSwipe();
       await loadVocabPacks();
       // Check if we're returning from OAuth (URL has ?code=...)
       const params = new URLSearchParams(window.location.search);
