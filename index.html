@@ -2282,6 +2282,15 @@
         </div>
 
         <div id="ocr-status" class="quickadd-status" role="status" aria-live="polite"></div>
+
+        <div class="ocr-row" id="ocr-toolbar" hidden>
+          <label class="ocr-check"><input type="checkbox" id="ocr-hide-known" checked>
+            Hide words I already have</label>
+          <button type="button" class="btn btn-outline btn-sm" id="ocr-select-new">Select all new</button>
+          <button type="button" class="btn btn-outline btn-sm" id="ocr-select-none">Clear</button>
+          <button type="button" class="btn btn-outline btn-sm" id="ocr-view-toggle">Fix a word</button>
+        </div>
+
         <div id="ocr-results"></div>
 
         <div class="quickadd-footer" id="ocr-actions" hidden>
@@ -4539,8 +4548,11 @@ function getDueWords(wordsList) {
     let ocrVocabTried = false;
     let ocrBusy = false;
     let ocrClaimed = false;
-    let ocrTaps = [];      // { x, y, thumb } — x/y are 0..1 of the image
+    let ocrTaps = [];      // { x, y, thumb, crop } — x/y are 0..1 of the image
     let ocrLastShot = null; // cached downscaled image so tapping costs nothing
+    let ocrView = 'board';  // 'board' (click words) | 'edit' (fix spellings)
+    let ocrNote = '';       // scale note shown under the results
+    let ocrGateFailed = false;
 
     // Used to veto English that the model put in the "irish" column.
     const OCR_COMMON_ENGLISH = new Set(('the and for with this that these those from into over under ' +
@@ -4578,6 +4590,11 @@ function getDueWords(wordsList) {
 
     const OCR_JSON_RULE =
       ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
+
+    // The point is flashcards, not a transcript. Left to itself the model returns
+    // whole sentences, which are unusable as cards and make the list hard to scan.
+    const OCR_WORDS_RULE = ' Return individual words and short phrases (at most three words).' +
+      ' Do not return full sentences. Prefer content words over grammatical particles.';
 
     function ocrIsAllowed(session) {
       const email = ((session && session.email) || '').trim().toLowerCase();
@@ -4618,6 +4635,20 @@ function getDueWords(wordsList) {
         '.ocr-tap-chip{display:inline-flex;align-items:center;gap:.3rem;border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:.15rem .35rem;font-size:.75rem;background:rgba(255,255,255,.6)}',
         '.ocr-tap-chip img{height:26px;border-radius:4px;display:block}',
         '.ocr-tap-chip button{border:0;background:transparent;cursor:pointer;font-size:.9rem;line-height:1;padding:0 .1rem}',
+        '.ocr-check{display:inline-flex;align-items:center;gap:.35rem;font-size:.78rem;cursor:pointer}',
+        '.ocr-group-title{font-size:.76rem;font-weight:700;letter-spacing:.02em;opacity:.65;width:100%;margin:.5rem 0 0}',
+        '.ocr-board{display:flex;flex-wrap:wrap;gap:.4rem;margin:.15rem 0 .4rem}',
+        '.ocr-card{display:inline-flex;flex-direction:column;align-items:flex-start;gap:0;padding:.3rem .5rem;border:1px solid rgba(0,0,0,.18);border-radius:9px;background:rgba(255,255,255,.72);cursor:pointer;font:inherit;font-size:.82rem;text-align:left;line-height:1.25;position:relative}',
+        '.ocr-card:hover{border-color:rgba(0,0,0,.38)}',
+        '.ocr-card.sel{border-color:#1f7a3d;background:#e6f4ea;box-shadow:inset 0 0 0 1px #1f7a3d}',
+        '.ocr-card.known{opacity:.45}',
+        '.ocr-card.bad{border-style:dashed}',
+        '.ocr-card .ga{font-weight:600}',
+        '.ocr-card .en{opacity:.7;font-size:.75rem}',
+        '.ocr-card.sel .ga::before{content:"✓ ";font-weight:700;color:#1f7a3d}',
+        '.ocr-pill{position:absolute;top:-.45rem;right:-.3rem;font-size:.6rem;border-radius:999px;padding:.05rem .3rem;background:#e6f4ea;color:#1f7a3d;border:1px solid rgba(31,122,61,.35)}',
+        '.ocr-pill.known{background:#eee;color:#555;border-color:rgba(0,0,0,.15)}',
+        '.ocr-pill.bad{background:#f7d7d7;color:#8a1c1c;border-color:rgba(138,28,28,.3)}',
       ].join('\n');
       document.head.appendChild(s);
     }
@@ -4678,6 +4709,20 @@ function getDueWords(wordsList) {
       document.getElementById('ocr-tap-clear').addEventListener('click', () => {
         ocrResetTaps();
         ocrSyncRunButton();
+      });
+
+      document.getElementById('ocr-hide-known').addEventListener('change', ocrPaint);
+      document.getElementById('ocr-select-new').addEventListener('click', () => {
+        ocrPairs.forEach((p) => { p.keep = p.verdict !== 'reject' && !p.known; });
+        ocrPaint();
+      });
+      document.getElementById('ocr-select-none').addEventListener('click', () => {
+        ocrPairs.forEach((p) => { p.keep = false; });
+        ocrPaint();
+      });
+      document.getElementById('ocr-view-toggle').addEventListener('click', () => {
+        ocrView = ocrView === 'board' ? 'edit' : 'board';
+        ocrPaint();
       });
 
       document.getElementById('ocr-run').addEventListener('click', ocrRun);
@@ -4832,8 +4877,12 @@ function getDueWords(wordsList) {
     function ocrCropForModel(x, y) {
       const img = document.getElementById('ocr-preview');
       if (!img || !img.naturalWidth) return '';
-      const cw = Math.max(40, Math.round(img.naturalWidth * 0.34));
-      const ch = Math.max(28, Math.round(img.naturalHeight * 0.17));
+      // Wide and short: width gives a sloppy tap room to still land on a
+      // two-word phrase, height stays shallow because a tall crop swallows
+      // several lines of handwriting and the model lists all of them
+      // (measured: a 0.17-tall crop returned 10 pairs from 4 taps).
+      const cw = Math.max(40, Math.round(img.naturalWidth * 0.40));
+      const ch = Math.max(24, Math.round(img.naturalHeight * 0.11));
       const sx = Math.min(Math.max(0, Math.round(x * img.naturalWidth - cw / 2)), Math.max(0, img.naturalWidth - cw));
       const sy = Math.min(Math.max(0, Math.round(y * img.naturalHeight - ch / 2)), Math.max(0, img.naturalHeight - ch));
       const canvas = document.createElement('canvas');
@@ -4853,13 +4902,17 @@ function getDueWords(wordsList) {
     function ocrTapCropPrompt() {
       return [
         "You are an OCR and translation tool for an Irish learner's app.",
-        'Each image is a small crop taken from a page of Irish text.',
-        'For EACH image, in the order given, return the Irish word or phrase visible in that crop,',
-        'exactly as written, with its English translation.',
+        'Each image is a narrow horizontal crop from a page of Irish text. The middle of each',
+        'crop is the exact spot the learner tapped.',
+        'For EACH image, in the order given, return EXACTLY ONE entry: the single Irish word or',
+        'short phrase closest to the CENTRE of the crop, exactly as written, with its English',
+        'translation.',
+        'Return one entry per image. Never return every word you can see in a crop.',
+        "The centre of the crop is the tapped point, so prefer the word nearest it over anything",
+        'at the edges.',
         'Preserve fadas (á é í ó ú) EXACTLY: never add, remove or substitute one.',
         'Copy the spelling as written, even if the writer got it wrong.',
-        'If a crop contains no Irish text, omit that entry.',
-        'One entry per image, in order.',
+        "If a crop's centre is not on any Irish text, omit that entry.",
       ].join('\n') + OCR_JSON_RULE;
     }
 
@@ -4867,7 +4920,7 @@ function getDueWords(wordsList) {
     function ocrBuildContent(mode, kind, shot) {
       if (mode !== 'tap') {
         return [
-          { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
+          { type: 'text', text: OCR_PROMPTS[kind] + OCR_WORDS_RULE + OCR_JSON_RULE },
           { type: 'image_url', image_url: { url: shot.dataUrl } },
         ];
       }
@@ -4962,6 +5015,25 @@ function getDueWords(wordsList) {
       allWords.forEach((w) => w && add(w.word));
       ocrVocab = set.size ? set : null;
       return ocrVocab;
+    }
+
+    // Shared normaliser: case- and accent-insensitive, for comparing against the
+    // user's own deck. Accents are stripped so "Padraigin" still matches.
+    function ocrKey(s) {
+      return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+    }
+
+    // Have they already got this word? Answers "which words do I not need?"
+    // before they waste time reading the list.
+    function ocrIsInDeck(irish) {
+      const target = ocrKey(irish);
+      if (!target) return false;
+      return (allWords || []).some((w) => {
+        if (!w) return false;
+        const ga = w.primary_translation ||
+          (w.senses && w.senses[0] && w.senses[0].translations && w.senses[0].translations[0]);
+        return ocrKey(ga) === target;
+      });
     }
 
     // The guard. It catches English in the Irish column and non-Irish tokens.
@@ -5063,7 +5135,10 @@ function getDueWords(wordsList) {
           const v = ocrVerdict(pair);
           pair.verdict = v.v;
           pair.why = v.why;
-          if (v.v === 'reject') pair.keep = false;
+          pair.known = ocrIsInDeck(pair.irish);
+          // Default to "the new words, ready to go": words they already have are
+          // not worth re-adding, and rejects stay unticked.
+          pair.keep = v.v !== 'reject' && !pair.known;
           return pair;
         });
 
@@ -5093,30 +5168,118 @@ function getDueWords(wordsList) {
     }
 
     function ocrRender(scaleNote, gateFailed) {
+      ocrNote = scaleNote || '';
+      ocrGateFailed = !!gateFailed;
+      document.getElementById('ocr-actions').hidden = false;
+      document.getElementById('ocr-toolbar').hidden = false;
+      ocrView = 'board';
+      ocrPaint();
+    }
+
+    function ocrPaint() {
       const wrap = document.getElementById('ocr-results');
+      if (!wrap) return;
+      wrap.innerHTML = ocrView === 'board' ? ocrBoardHtml() : ocrTableHtml();
+
+      if (ocrView === 'board') {
+        wrap.querySelectorAll('[data-ocr-pick]').forEach((el) => {
+          el.addEventListener('click', () => {
+            const i = Number(el.dataset.ocrPick);
+            if (!ocrPairs[i]) return;
+            ocrPairs[i].keep = !ocrPairs[i].keep;
+            el.classList.toggle('sel', ocrPairs[i].keep);
+            ocrUpdateSummary();
+          });
+        });
+      } else {
+        wrap.querySelectorAll('input').forEach((el) => {
+          el.addEventListener('input', ocrOnEdit);
+          el.addEventListener('change', ocrOnEdit);
+        });
+      }
+
+      const toggle = document.getElementById('ocr-view-toggle');
+      if (toggle) toggle.textContent = ocrView === 'board' ? 'Fix a word' : 'Back to words';
+      ocrUpdateSummary();
+    }
+
+    function ocrCardHtml(i) {
+      const p = ocrPairs[i];
+      const cls = ['ocr-card'];
+      if (p.keep) cls.push('sel');
+      if (p.known) cls.push('known');
+      if (p.verdict === 'reject') cls.push('bad');
+      const pill = p.known
+        ? '<span class="ocr-pill known">saved</span>'
+        : p.verdict === 'accept'
+          ? '<span class="ocr-pill">new</span>'
+          : '<span class="ocr-pill bad">check</span>';
+      return '<button type="button" class="' + cls.join(' ') + '" data-ocr-pick="' + i + '"' +
+        ' title="' + ocrEscapeAttr(p.why || '') + '">' +
+        '<span class="ga">' + ocrEscapeAttr(p.irish) + '</span>' +
+        '<span class="en">' + ocrEscapeAttr(p.english) + '</span>' + pill + '</button>';
+    }
+
+    // The board: words you can click, grouped so the useful ones are first.
+    function ocrBoardHtml() {
+      const hideEl = document.getElementById('ocr-hide-known');
+      const skipKnown = !hideEl || hideEl.checked;
+      const buckets = { words: [], phrases: [], known: [], check: [] };
+
+      ocrPairs.forEach((p, i) => {
+        const count = String(p.irish).trim().split(/\s+/).filter(Boolean).length;
+        if (p.verdict === 'reject') buckets.check.push(i);
+        else if (p.known) buckets.known.push(i);
+        else if (p.verdict === 'review') buckets.check.push(i);
+        else if (count > 3) buckets.phrases.push(i);
+        else buckets.words.push(i);
+      });
+
+      const section = (title, list, note) => list.length
+        ? '<div class="ocr-group-title">' + title + ' (' + list.length + ')' +
+          (note ? ' <span style="font-weight:400">— ' + note + '</span>' : '') + '</div>' +
+          '<div class="ocr-board">' + list.map(ocrCardHtml).join('') + '</div>'
+        : '';
+
+      let html = '';
+      html += section('Words', buckets.words);
+      html += section('Phrases', buckets.phrases, 'more than one word');
+      if (!skipKnown) html += section('Already in your deck', buckets.known);
+      html += section('Worth a look', buckets.check, 'unclear or not recognised as Irish');
+
+      const hidden = skipKnown && buckets.known.length
+        ? '<p class="ocr-hint">' + buckets.known.length + ' word' +
+          (buckets.known.length === 1 ? '' : 's') + ' you already have hidden.</p>'
+        : '';
+      const empty = !buckets.words.length && !buckets.phrases.length &&
+        !buckets.check.length && (skipKnown || !buckets.known.length);
+
+      return (empty ? '<p class="ocr-hint">Nothing found in that image.</p>' : html + hidden) + ocrFootnote();
+    }
+
+    function ocrFootnote() {
+      let html = '';
+      if (ocrNote) {
+        html += '<p class="ocr-hint">Sent: ' + ocrEscapeAttr(ocrNote) + ' (downscaled, EXIF removed)</p>';
+      }
+      if (ocrGateFailed) {
+        html += '<p class="ocr-hint"><strong>Many words failed the check</strong> — this looks ' +
+          'handwritten or unclear. Read the list before adding.</p>';
+      }
+      return html;
+    }
+
+    function ocrTableHtml() {
       const rows = ocrPairs.map((p, i) =>
         '<tr' + (p.verdict === 'reject' ? ' class="ocr-row-warn"' : '') + '>' +
         '<td><input type="checkbox" data-ocr-keep="' + i + '"' + (p.keep ? ' checked' : '') + '></td>' +
         '<td><input type="text" data-ocr-irish="' + i + '" value="' + ocrEscapeAttr(p.irish) + '"></td>' +
         '<td><input type="text" data-ocr-english="' + i + '" value="' + ocrEscapeAttr(p.english) + '"></td>' +
-        '<td><span class="ocr-badge ' + p.verdict + '" title="' + ocrEscapeAttr(p.why) + '">' + p.verdict + '</span></td>' +
-        '</tr>'
+        '<td><span class="ocr-badge ' + p.verdict + '" title="' + ocrEscapeAttr(p.why) + '">' +
+        p.verdict + '</span></td></tr>'
       ).join('');
-
-      wrap.innerHTML =
-        '<table class="ocr-table"><thead><tr><th></th><th>Irish</th><th>English</th><th>Check</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody></table>' +
-        (scaleNote ? '<p class="ocr-hint">Sent: ' + ocrEscapeAttr(scaleNote) + ' (downscaled, EXIF removed)</p>' : '') +
-        (gateFailed
-          ? '<p class="ocr-hint"><strong>Many lines failed the check</strong> — this looks handwritten or unclear. Read every line before adding.</p>'
-          : '');
-
-      document.getElementById('ocr-actions').hidden = false;
-      wrap.querySelectorAll('input').forEach((el) => {
-        el.addEventListener('input', ocrOnEdit);
-        el.addEventListener('change', ocrOnEdit);
-      });
-      ocrUpdateSummary();
+      return '<table class="ocr-table"><thead><tr><th></th><th>Irish</th><th>English</th><th>Check</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>' + ocrFootnote();
     }
 
     function ocrCollect() {
