@@ -5142,6 +5142,16 @@ function getDueWords(wordsList) {
           return pair;
         });
 
+        // The model sometimes returns the same word twice with different casing
+        // (measured: "Fadhbanna déagóirí" and "fadhbanna déagóirí" in one run).
+        const seen = new Set();
+        ocrPairs = ocrPairs.filter((p) => {
+          const k = ocrKey(p.irish);
+          if (!k || seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+
         if (!ocrPairs.length) {
           ocrStatus('No Irish words found in that image.', 'error');
           return;
