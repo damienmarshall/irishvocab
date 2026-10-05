@@ -2222,6 +2222,58 @@
           <button type="button" class="btn btn-primary btn-sm" id="qa-bulk-add">Add all</button>
         </div>
       </div>
+
+      <!-- ── Photo → words (OpenRouter test) — shown only to allow-listed accounts ── -->
+      <div class="ocr-test-panel" id="ocr-test-panel" hidden>
+        <div class="custom-card-header">
+          <h3>🧪 Photo → words (test)</h3>
+          <p>Upload a photo or screenshot of Irish text and pull out the words and their English
+            translations. Nothing is saved until you press Add — check every line first.</p>
+        </div>
+
+        <label class="ocr-label" for="ocr-key">OpenRouter API key</label>
+        <div class="ocr-row">
+          <input id="ocr-key" type="password" class="ocr-input" placeholder="sk-or-v1-…"
+            autocomplete="off" spellcheck="false">
+          <button type="button" class="btn btn-outline btn-sm" id="ocr-key-save">Save</button>
+          <button type="button" class="btn btn-outline btn-sm" id="ocr-key-clear">Forget</button>
+        </div>
+        <p class="ocr-hint" id="ocr-key-state">This key is stored in this browser only. It is never
+          sent to our servers and never saved with your account. Treat it like a password — this page
+          is public, so only paste a key you are willing to have on this device.</p>
+
+        <div class="ocr-row">
+          <label class="ocr-label" for="ocr-model">Model</label>
+          <select id="ocr-model" class="ocr-input">
+            <option value="google/gemini-2.5-flash-lite">gemini-2.5-flash-lite — cheapest, good for printed pages</option>
+            <option value="google/gemini-2.5-flash">gemini-2.5-flash — best, use for handwriting</option>
+            <option value="google/gemma-3-12b-it">gemma-3-12b-it — cheaper, weaker on Irish</option>
+          </select>
+          <label class="ocr-label" for="ocr-kind">Page type</label>
+          <select id="ocr-kind" class="ocr-input">
+            <option value="auto">Auto</option>
+            <option value="photo">Printed</option>
+            <option value="notes">Handwritten notes</option>
+          </select>
+        </div>
+
+        <div class="ocr-row">
+          <input id="ocr-file" type="file" accept="image/*" class="ocr-input">
+          <button type="button" class="btn btn-primary btn-sm" id="ocr-run" disabled>Extract words</button>
+        </div>
+
+        <div id="ocr-preview-wrap" hidden>
+          <img id="ocr-preview" alt="Preview of the image being sent" class="ocr-preview">
+        </div>
+
+        <div id="ocr-status" class="quickadd-status" role="status" aria-live="polite"></div>
+        <div id="ocr-results"></div>
+
+        <div class="quickadd-footer" id="ocr-actions" hidden>
+          <span id="ocr-summary" class="quickadd-status"></span>
+          <button type="button" class="btn btn-primary btn-sm" id="ocr-add">Add selected</button>
+        </div>
+      </div>
     </div>
 
     <!-- ── Review ── -->
@@ -2862,6 +2914,7 @@
       // Push anything that was typed while signed out or offline
       qaFlushQueue();
       loadWords(session);
+      ocrTestInit(session);
     }
 
     async function loadWords(session) {
@@ -4450,6 +4503,474 @@ function getDueWords(wordsList) {
         startPolling(session);
       } else {
         showLoggedOut();
+      }
+    }
+
+    // ───────────────────────────────────────────────
+    // PHOTO → WORDS (OpenRouter) — gated test feature
+    //
+    // The API key lives in localStorage on this device only. It is never written
+    // to Supabase, never logged, and the image goes straight from the browser to
+    // OpenRouter. This page is public, so the account check below is a
+    // convenience gate, not a security boundary: anyone can read this source.
+    // ───────────────────────────────────────────────
+    const OCR_TEST_EMAILS = ['marshall.damien@gmail.com'];
+    const OCR_KEY_STORAGE = 'irish_learner_ocr_key';
+    const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
+    const OCR_MAX_EDGE = 1568; // downscale target: image tokens scale with area
+
+    let ocrPairs = [];
+    let ocrVocab = null;
+    let ocrVocabTried = false;
+    let ocrBusy = false;
+    let ocrClaimed = false;
+
+    // Used to veto English that the model put in the "irish" column.
+    const OCR_COMMON_ENGLISH = new Set(('the and for with this that these those from into over under ' +
+      'his her their your our its they them she he you was were been being have has had did does ' +
+      'not but or if then than when where what which how why here there one two three first last ' +
+      'book word picture page name look find learn read see main point story short school home ' +
+      'parents parent permission holiday time life room able write asked told let put take saw ' +
+      'small big good new old own same very much many little great made when').split(/\s+/));
+
+    const OCR_PROMPTS = {
+      photo: [
+        "You are an OCR and translation tool for an Irish learner's app.",
+        'The image is a printed page of Irish vocabulary: words captioned under pictures, or a word list.',
+        'For every Irish word or phrase, return the Irish exactly as printed and its English translation.',
+        'Preserve fadas (á é í ó ú) EXACTLY: never add one, never remove one, never substitute one.',
+        'Copy the spelling on the page; do not correct it. Skip titles and publisher names.',
+      ].join(' '),
+      notes: [
+        'You are helping an Irish learner digitise handwritten school notes.',
+        'The Irish is written in pen; the English translations are written in a different colour',
+        'beside the Irish words they translate. Return each Irish word or phrase with the English gloss',
+        'actually written on the page. Preserve fadas (á é í ó ú) EXACTLY. Copy the handwriting,',
+        'including any spelling the writer got wrong. Never put English text in the irish field.',
+        'Skip ordinary sentences: vocabulary only.',
+      ].join(' '),
+      auto: [
+        "You are an OCR and translation tool for an Irish learner's app.",
+        'The image is either a printed page of Irish vocabulary, or handwritten Irish notes with English',
+        'translations written beside the Irish words they translate. Return each Irish word or phrase',
+        'with its English equivalent. If the page is handwritten, use the English gloss actually written',
+        'on the page rather than your own translation. Preserve fadas (á é í ó ú) EXACTLY: never add,',
+        'remove or substitute one. Copy the spelling as written. Skip titles and ordinary sentences.',
+      ].join(' '),
+    };
+
+    const OCR_JSON_RULE =
+      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
+
+    function ocrIsAllowed(session) {
+      const email = ((session && session.email) || '').trim().toLowerCase();
+      return OCR_TEST_EMAILS.includes(email);
+    }
+
+    function ocrEscapeAttr(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>')
+        .replace(/"/g, '"');
+    }
+
+    function ocrInjectStyles() {
+      if (document.getElementById('ocr-test-styles')) return;
+      const s = document.createElement('style');
+      s.id = 'ocr-test-styles';
+      s.textContent = [
+        '.ocr-test-panel{margin-top:1.25rem;padding:1rem;border:1px dashed rgba(0,0,0,.22);border-radius:10px}',
+        '.ocr-test-panel[hidden]{display:none!important}',
+        '.ocr-label{font-size:.8rem;font-weight:600;display:block;margin-bottom:.2rem}',
+        '.ocr-row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:.6rem}',
+        '.ocr-input{flex:1 1 12rem;padding:.45rem .6rem;border:1px solid rgba(0,0,0,.2);border-radius:6px;font-size:.85rem;min-width:0}',
+        '.ocr-hint{font-size:.76rem;opacity:.75;margin:0 0 .75rem}',
+        '.ocr-preview{max-width:100%;max-height:260px;border-radius:6px;margin-bottom:.6rem}',
+        '.ocr-table{width:100%;border-collapse:collapse;margin-top:.5rem;font-size:.85rem}',
+        '.ocr-table th,.ocr-table td{text-align:left;padding:.3rem .4rem;border-bottom:1px solid rgba(0,0,0,.08)}',
+        '.ocr-table input[type=text]{width:100%;padding:.25rem .35rem;border:1px solid rgba(0,0,0,.2);border-radius:4px;font-size:.85rem}',
+        '.ocr-badge{font-size:.7rem;padding:.1rem .4rem;border-radius:999px;white-space:nowrap}',
+        '.ocr-badge.accept{background:#d7f2dc;color:#14622b}',
+        '.ocr-badge.review{background:#fdf0cd;color:#7a5600}',
+        '.ocr-badge.reject{background:#f7d7d7;color:#8a1c1c}',
+        '.ocr-row-warn{background:rgba(253,240,205,.35)}',
+      ].join('\n');
+      document.head.appendChild(s);
+    }
+
+    function ocrTestInit(session) {
+      if (!ocrIsAllowed(session)) return;
+      ocrInjectStyles();
+      const panel = document.getElementById('ocr-test-panel');
+      if (!panel || ocrClaimed) return;
+      ocrClaimed = true;
+      panel.hidden = false;
+
+      const keyEl = document.getElementById('ocr-key');
+      const stateEl = document.getElementById('ocr-key-state');
+      const modelEl = document.getElementById('ocr-model');
+
+      const saved = localStorage.getItem(OCR_KEY_STORAGE) || '';
+      if (saved) {
+        keyEl.value = saved;
+        stateEl.textContent = 'Key saved in this browser. It is never sent to our servers.';
+      }
+      const savedModel = localStorage.getItem(OCR_MODEL_STORAGE);
+      if (savedModel) modelEl.value = savedModel;
+
+      document.getElementById('ocr-key-save').addEventListener('click', () => {
+        const v = keyEl.value.trim();
+        if (!/^sk-or-/.test(v)) { toast('That does not look like an OpenRouter key (sk-or-…)', 'error'); return; }
+        localStorage.setItem(OCR_KEY_STORAGE, v);
+        stateEl.textContent = 'Key saved in this browser. It is never sent to our servers.';
+        toast('Key saved', 'success');
+        ocrSyncRunButton();
+      });
+
+      document.getElementById('ocr-key-clear').addEventListener('click', () => {
+        localStorage.removeItem(OCR_KEY_STORAGE);
+        keyEl.value = '';
+        stateEl.textContent = 'Key cleared.';
+        ocrSyncRunButton();
+      });
+
+      document.getElementById('ocr-file').addEventListener('change', ocrSyncRunButton);
+      document.getElementById('ocr-run').addEventListener('click', ocrRun);
+      document.getElementById('ocr-add').addEventListener('click', ocrAddSelected);
+      modelEl.addEventListener('change', () => localStorage.setItem(OCR_MODEL_STORAGE, modelEl.value));
+      ocrSyncRunButton();
+    }
+
+    function ocrSyncRunButton() {
+      const btn = document.getElementById('ocr-run');
+      if (!btn) return;
+      const hasKey = !!(localStorage.getItem(OCR_KEY_STORAGE) || '').trim();
+      const fileEl = document.getElementById('ocr-file');
+      const hasFile = !!(fileEl && fileEl.files && fileEl.files[0]);
+      btn.disabled = ocrBusy || !hasKey || !hasFile;
+      btn.textContent = ocrBusy ? 'Working…' : 'Extract words';
+    }
+
+    function ocrStatus(msg, kind) {
+      const el = document.getElementById('ocr-status');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.className = 'quickadd-status' + (kind ? ' ' + kind : '');
+    }
+
+    // Downscale + re-encode before sending. This cuts image tokens (about 10x
+    // for a phone photo) and strips EXIF, including GPS, from the original.
+    function ocrFileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const scale = Math.min(1, OCR_MAX_EDGE / Math.max(img.width, img.height));
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            URL.revokeObjectURL(url);
+            resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.85), w: w, h: h, sourceW: img.width, sourceH: img.height });
+          } catch (e) {
+            URL.revokeObjectURL(url);
+            reject(e);
+          }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image.')); };
+        img.src = url;
+      });
+    }
+
+    // Models emit invalid escapes ("\Níor"), so repair before parsing.
+    function ocrParseJson(text) {
+      const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const body = fenced ? fenced[1] : text;
+      const start = body.indexOf('{');
+      const end = body.lastIndexOf('}');
+      if (start === -1 || end === -1) throw new Error('no JSON object in response');
+      const sliced = body.slice(start, end + 1);
+      try {
+        return JSON.parse(sliced);
+      } catch (e) {
+        return JSON.parse(sliced.replace(/\\(?!["\\/bfnrtu])/g, ''));
+      }
+    }
+
+    // Best-effort vocabulary. The dictionary and packs are served from the same
+    // origin on the web build; if they are missing the heuristics still run.
+    async function ocrEnsureVocab() {
+      if (ocrVocab || ocrVocabTried) return ocrVocab;
+      ocrVocabTried = true;
+      const set = new Set();
+      const add = (w) => {
+        const t = String(w || '').trim().toLowerCase();
+        if (!t) return;
+        set.add(t);
+        set.add(t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+      };
+      try {
+        const r = await fetch('./irish_en_dict.json', { cache: 'force-cache' });
+        if (r.ok) {
+          const d = await r.json();
+          Object.keys(d.ga_en || {}).forEach(add);
+          Object.keys(d.en_ga || {}).forEach(add);
+        }
+      } catch (e) { /* offline or not deployed */ }
+      try {
+        const r = await fetch('./packs.json', { cache: 'force-cache' });
+        if (r.ok) {
+          const packs = await r.json();
+          const walk = (n) => {
+            if (Array.isArray(n)) n.forEach((i) => i && i.word && add(i.word));
+            else if (n && typeof n === 'object') Object.values(n).forEach(walk);
+          };
+          walk(packs);
+        }
+      } catch (e) { /* optional */ }
+      allWords.forEach((w) => w && add(w.word));
+      ocrVocab = set.size ? set : null;
+      return ocrVocab;
+    }
+
+    // The guard. It catches English in the Irish column and non-Irish tokens.
+    // It CANNOT catch a plausible-but-misaligned pair (Irish fine, gloss wrong),
+    // which is why handwriting still needs the user to read the list.
+    function ocrVerdict(p) {
+      const irish = String(p.irish || '').trim();
+      const english = String(p.english || '').trim();
+      if (!irish) return { v: 'reject', why: 'no Irish text' };
+      if (!english || english === 'undefined') return { v: 'reject', why: 'no English gloss' };
+      if (!/^[a-záéíóú' \-]+$/i.test(irish)) return { v: 'reject', why: 'digits or symbols' };
+
+      const flat = irish.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const words = flat.split(/[\s-]+/).filter((w) => w.length > 1);
+      const hasFada = /[áéíóú]/i.test(irish);
+      const known = ocrVocab ? words.filter((w) => ocrVocab.has(w)).length : 0;
+
+      if (words.length > 6) return { v: 'review', why: 'looks like a sentence' };
+      if (ocrVocab && words.length && known === words.length) return { v: 'accept', why: 'in vocabulary' };
+      if (!hasFada && OCR_COMMON_ENGLISH.has(flat)) return { v: 'reject', why: 'English in the Irish column' };
+      if (!hasFada && words.length === 1) return { v: 'reject', why: 'plain ASCII, not Irish' };
+      if (typeof qaLooksIrish === 'function' && qaLooksIrish(irish)) {
+        return { v: (hasFada || words.length > 1) ? 'accept' : 'review', why: known ? known + '/' + words.length + ' known' : 'looks Irish' };
+      }
+      if (hasFada) return { v: 'review', why: 'not in vocabulary' };
+      return { v: 'reject', why: 'no Irish shape' };
+    }
+
+    async function ocrRun() {
+      const key = (localStorage.getItem(OCR_KEY_STORAGE) || '').trim();
+      const fileEl = document.getElementById('ocr-file');
+      const file = fileEl && fileEl.files && fileEl.files[0];
+      const kind = document.getElementById('ocr-kind').value;
+      const model = document.getElementById('ocr-model').value;
+      if (!key) { toast('Add your OpenRouter key first', 'error'); return; }
+      if (!file) { toast('Choose an image first', 'error'); return; }
+      if (ocrBusy) return;
+
+      ocrBusy = true;
+      ocrSyncRunButton();
+      ocrStatus('Preparing image…', 'pending');
+      document.getElementById('ocr-results').innerHTML = '';
+      document.getElementById('ocr-actions').hidden = true;
+
+      try {
+        const shot = await ocrFileToDataUrl(file);
+        document.getElementById('ocr-preview').src = shot.dataUrl;
+        document.getElementById('ocr-preview-wrap').hidden = false;
+
+        if (!ocrVocab) ocrStatus('Loading vocabulary…', 'pending');
+        await ocrEnsureVocab();
+
+        ocrStatus('Sending ' + shot.w + '×' + shot.h + ' to ' + model + '…', 'pending');
+
+        const started = Date.now();
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + key,
+            'Content-Type': 'application/json',
+            'X-Title': 'Irish Learner',
+          },
+          body: JSON.stringify({
+            model: model,
+            max_tokens: 1800,
+            temperature: 0,
+            // Only route to providers that do not retain or train on the input.
+            provider: { data_collection: 'deny', zdr: true, allow_fallbacks: true },
+            usage: { include: true },
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
+                { type: 'image_url', image_url: { url: shot.dataUrl } },
+              ],
+            }],
+          }),
+        });
+
+        const json = await resp.json();
+        const elapsed = Date.now() - started;
+
+        if (!resp.ok) {
+          ocrStatus('Failed: ' + ((json && json.error && json.error.message) || ('HTTP ' + resp.status)), 'error');
+          return;
+        }
+
+        const msg = (json.choices && json.choices[0] && json.choices[0].message) || {};
+        const text = msg.content || '';
+        let parsed;
+        try {
+          parsed = ocrParseJson(text);
+        } catch (e) {
+          ocrStatus('The model did not return usable JSON. Try a different model.', 'error');
+          console.warn('OCR raw output:', text);
+          return;
+        }
+
+        ocrPairs = (parsed.pairs || []).map((p) => {
+          const pair = { irish: String(p.irish || ''), english: String(p.english || ''), keep: true };
+          const v = ocrVerdict(pair);
+          pair.verdict = v.v;
+          pair.why = v.why;
+          if (v.v === 'reject') pair.keep = false;
+          return pair;
+        });
+
+        if (!ocrPairs.length) {
+          ocrStatus('No Irish words found in that image.', 'error');
+          return;
+        }
+
+        const usage = json.usage || {};
+        const rejected = ocrPairs.filter((p) => p.verdict === 'reject').length;
+        const rate = rejected / ocrPairs.length;
+        let line = ocrPairs.length + ' pairs in ' + (elapsed / 1000).toFixed(1) + 's';
+        if (typeof usage.cost === 'number') {
+          line += ' · $' + usage.cost.toFixed(5) + ' (' + (usage.cost * 1000).toFixed(2) + ' per 1,000 images)';
+        }
+        line += ' · ' + rejected + ' failed the check';
+        ocrStatus(line, rate > 0.34 ? 'error' : 'success');
+
+        ocrRender(shot.sourceW + '×' + shot.sourceH + ' → ' + shot.w + '×' + shot.h, rate > 0.34);
+      } catch (err) {
+        ocrStatus('Failed: ' + ((err && err.message) || err), 'error');
+        console.error(err);
+      } finally {
+        ocrBusy = false;
+        ocrSyncRunButton();
+      }
+    }
+
+    function ocrRender(scaleNote, gateFailed) {
+      const wrap = document.getElementById('ocr-results');
+      const rows = ocrPairs.map((p, i) =>
+        '<tr' + (p.verdict === 'reject' ? ' class="ocr-row-warn"' : '') + '>' +
+        '<td><input type="checkbox" data-ocr-keep="' + i + '"' + (p.keep ? ' checked' : '') + '></td>' +
+        '<td><input type="text" data-ocr-irish="' + i + '" value="' + ocrEscapeAttr(p.irish) + '"></td>' +
+        '<td><input type="text" data-ocr-english="' + i + '" value="' + ocrEscapeAttr(p.english) + '"></td>' +
+        '<td><span class="ocr-badge ' + p.verdict + '" title="' + ocrEscapeAttr(p.why) + '">' + p.verdict + '</span></td>' +
+        '</tr>'
+      ).join('');
+
+      wrap.innerHTML =
+        '<table class="ocr-table"><thead><tr><th></th><th>Irish</th><th>English</th><th>Check</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>' +
+        (scaleNote ? '<p class="ocr-hint">Sent: ' + ocrEscapeAttr(scaleNote) + ' (downscaled, EXIF removed)</p>' : '') +
+        (gateFailed
+          ? '<p class="ocr-hint"><strong>Many lines failed the check</strong> — this looks handwritten or unclear. Read every line before adding.</p>'
+          : '');
+
+      document.getElementById('ocr-actions').hidden = false;
+      wrap.querySelectorAll('input').forEach((el) => {
+        el.addEventListener('input', ocrOnEdit);
+        el.addEventListener('change', ocrOnEdit);
+      });
+      ocrUpdateSummary();
+    }
+
+    function ocrCollect() {
+      const wrap = document.getElementById('ocr-results');
+      if (!wrap) return;
+      wrap.querySelectorAll('input[data-ocr-irish]').forEach((el) => {
+        const i = Number(el.dataset.ocrIrish);
+        if (ocrPairs[i]) ocrPairs[i].irish = el.value;
+      });
+      wrap.querySelectorAll('input[data-ocr-english]').forEach((el) => {
+        const i = Number(el.dataset.ocrEnglish);
+        if (ocrPairs[i]) ocrPairs[i].english = el.value;
+      });
+      wrap.querySelectorAll('input[data-ocr-keep]').forEach((el) => {
+        const i = Number(el.dataset.ocrKeep);
+        if (ocrPairs[i]) ocrPairs[i].keep = el.checked;
+      });
+    }
+
+    function ocrOnEdit() {
+      ocrCollect();
+      const wrap = document.getElementById('ocr-results');
+      ocrPairs.forEach((p, i) => {
+        const v = ocrVerdict(p);
+        p.verdict = v.v;
+        p.why = v.why;
+        const el = wrap.querySelector('input[data-ocr-irish="' + i + '"]');
+        const row = el && el.closest('tr');
+        if (!row) return;
+        const badge = row.querySelector('.ocr-badge');
+        if (badge) {
+          badge.className = 'ocr-badge ' + p.verdict;
+          badge.textContent = p.verdict;
+          badge.title = p.why;
+        }
+        row.classList.toggle('ocr-row-warn', p.verdict === 'reject');
+      });
+      ocrUpdateSummary();
+    }
+
+    function ocrUpdateSummary() {
+      const kept = ocrPairs.filter((p) => p.keep);
+      const review = kept.filter((p) => p.verdict === 'review').length;
+      const wrong = kept.filter((p) => p.verdict === 'reject').length;
+      const bits = [kept.length + ' selected'];
+      if (review) bits.push(review + ' to double-check');
+      if (wrong) bits.push(wrong + ' look wrong');
+      const el = document.getElementById('ocr-summary');
+      if (el) el.textContent = bits.join(' · ');
+      return kept;
+    }
+
+    function ocrAddSelected() {
+      // Re-read the inputs: the user may have corrected them by hand.
+      ocrCollect();
+      const kept = ocrPairs.filter((p) => p.keep);
+      if (!kept.length) { toast('Nothing selected', 'error'); return; }
+
+      let added = 0;
+      let dupes = 0;
+      let unusable = 0;
+      kept.forEach((p) => {
+        const irish = p.irish.trim();
+        const english = p.english.trim();
+        if (!irish || !english) { unusable++; return; }
+        const result = qaAddWord(irish, english);
+        if (result === 'ok') added++;
+        else if (result === 'duplicate') dupes++;
+        else unusable++;
+      });
+
+      const bits = ['Added ' + added];
+      if (dupes) bits.push(dupes + ' duplicate' + (dupes === 1 ? '' : 's'));
+      if (unusable) bits.push(unusable + ' unusable');
+      ocrStatus(bits.join(', '), added ? 'success' : 'error');
+      toast(added ? 'Added ' + added + ' word' + (added === 1 ? '' : 's') + ' from the photo' : 'Nothing added',
+        added ? 'success' : 'error');
+
+      if (added) {
+        qaScheduleSync();
+        qaRefreshDeckSoon();
       }
     }
 
