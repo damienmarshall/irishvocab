@@ -4749,7 +4749,7 @@ function getDueWords(wordsList) {
       const x = (e.clientX - rect.left) / rect.width;
       const y = (e.clientY - rect.top) / rect.height;
       if (x < 0 || x > 1 || y < 0 || y > 1) return;
-      ocrTaps.push({ x: x, y: y, thumb: ocrCropThumb(x, y) });
+      ocrTaps.push({ x: x, y: y, thumb: ocrCropThumb(x, y), crop: ocrCropForModel(x, y) });
       ocrRenderMarks();
       ocrRenderTapList();
       ocrSyncRunButton();
@@ -4821,21 +4821,62 @@ function getDueWords(wordsList) {
       });
     }
 
-    // Coordinates are sent as percentages so they survive any resizing.
-    function ocrTapPrompt() {
-      const list = ocrTaps.map((t, i) =>
-        (i + 1) + '. ' + (t.x * 100).toFixed(1) + '% from the left edge, ' + (t.y * 100).toFixed(1) + '% from the top'
-      ).join('\n');
+    // A generous, upscaled crop around the tap.
+    //
+    // Measured: asking the model "which word is nearest this point?" is a guess
+    // and it guesses wrong — on the word book it returned eilifint for a tap on
+    // tarracóir and ialtóg for a tap on madra. A crop contains one word, so
+    // there is nothing to disambiguate, and the same taps then came back right.
+    // The crop is wide enough for a two-word phrase and upscaled 2x so a
+    // slightly-off tap still contains the whole word.
+    function ocrCropForModel(x, y) {
+      const img = document.getElementById('ocr-preview');
+      if (!img || !img.naturalWidth) return '';
+      const cw = Math.max(40, Math.round(img.naturalWidth * 0.34));
+      const ch = Math.max(28, Math.round(img.naturalHeight * 0.17));
+      const sx = Math.min(Math.max(0, Math.round(x * img.naturalWidth - cw / 2)), Math.max(0, img.naturalWidth - cw));
+      const sy = Math.min(Math.max(0, Math.round(y * img.naturalHeight - ch / 2)), Math.max(0, img.naturalHeight - ch));
+      const canvas = document.createElement('canvas');
+      canvas.width = cw * 2;
+      canvas.height = ch * 2;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      try {
+        ctx.drawImage(img, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.9);
+      } catch (err) {
+        return '';
+      }
+    }
+
+    function ocrTapCropPrompt() {
       return [
         "You are an OCR and translation tool for an Irish learner's app.",
-        'The learner tapped ' + ocrTaps.length + ' point(s) on this image:',
-        list,
-        'For EACH point, in the same order, return the Irish word or short phrase nearest that point,',
-        'with its English translation. One pair per point and nothing else.',
-        'If a point is not on any text, omit that pair so the numbering stays honest.',
+        'Each image is a small crop taken from a page of Irish text.',
+        'For EACH image, in the order given, return the Irish word or phrase visible in that crop,',
+        'exactly as written, with its English translation.',
         'Preserve fadas (á é í ó ú) EXACTLY: never add, remove or substitute one.',
-        'Copy the spelling exactly as written, even if the writer got it wrong.',
+        'Copy the spelling as written, even if the writer got it wrong.',
+        'If a crop contains no Irish text, omit that entry.',
+        'One entry per image, in order.',
       ].join('\n') + OCR_JSON_RULE;
+    }
+
+    // Tap mode sends one crop per tap, all in a single request.
+    function ocrBuildContent(mode, kind, shot) {
+      if (mode !== 'tap') {
+        return [
+          { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
+          { type: 'image_url', image_url: { url: shot.dataUrl } },
+        ];
+      }
+      const content = [{ type: 'text', text: ocrTapCropPrompt() }];
+      ocrTaps.forEach((t, i) => {
+        content.push({ type: 'text', text: 'Image ' + (i + 1) + ':' });
+        content.push({ type: 'image_url', image_url: { url: t.crop || shot.dataUrl } });
+      });
+      return content;
     }
 
     function ocrStatus(msg, kind) {
@@ -4994,13 +5035,7 @@ function getDueWords(wordsList) {
             // Only route to providers that do not retain or train on the input.
             provider: { data_collection: 'deny', zdr: true, allow_fallbacks: true },
             usage: { include: true },
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'text', text: mode === 'tap' ? ocrTapPrompt() : (OCR_PROMPTS[kind] + OCR_JSON_RULE) },
-                { type: 'image_url', image_url: { url: shot.dataUrl } },
-              ],
-            }],
+            messages: [{ role: 'user', content: ocrBuildContent(mode, kind, shot) }],
           }),
         });
 
