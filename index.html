@@ -5118,31 +5118,40 @@ function getDueWords(wordsList) {
     // The clicked word becomes a card straight away (marked pending) so the UI
     // stays responsive, then fills in when the answer arrives. Measured cost:
     // about $0.00001 per lookup, under a second.
-    function ocrLookupPrompt(surface, phrase) {
+    function ocrLookupPrompt(selection, phrase) {
+      // A single word wants its dictionary form; a dragged span wants the whole
+      // phrase kept intact. Asking for "the same word in dictionary form" for a
+      // span made the model collapse it to one word — measured: dragging
+      // "Pádraigín a seomra féin" came back as just "seomra / room".
+      const isPhrase = String(selection).trim().split(/\s+/).filter(Boolean).length > 1;
       return [
         "You are a dictionary for an Irish learner's app.",
         phrase
-          ? 'The learner tapped the word "' + surface + '" inside this Irish sentence:\n"' +
-            phrase + '"\n\nUse the sentence as context to work out what the word is.'
+          ? 'The learner selected "' + selection + '" inside this Irish sentence:\n"' +
+            phrase + '"\n\nUse the sentence as context to work out what it means.'
           : '',
         'Return:',
-        '  - "surface": the word exactly as given',
-        '  - "irish": the same word in dictionary form (nominative singular for a noun,' +
-          ' imperative for a verb)',
-        '  - "english": the English for that dictionary form',
-        'Preserve fadas (á é í ó ú) EXACTLY. If the word is not Irish, omit it.',
+        '  - "surface": the selection exactly as given',
+        isPhrase
+          ? '  - "irish": the whole selection exactly as given — do NOT reduce a phrase to one word'
+          : '  - "irish": the same word in dictionary form (nominative singular for a noun,' +
+            ' imperative for a verb)',
+        isPhrase
+          ? '  - "english": the English for the whole phrase'
+          : '  - "english": the English for that dictionary form',
+        'Preserve fadas (á é í ó ú) EXACTLY. If the selection is not Irish, omit it.',
         'Return ONLY valid JSON, no markdown fences, no commentary: ' +
           '{"words":[{"surface":"...","irish":"...","english":"..."}]}',
       ].filter(Boolean).join('\n');
     }
 
-    async function ocrLookupWord(surface, phrase) {
+    async function ocrLookupWord(selection, phrase) {
       const keyEl = document.getElementById('ocr-key');
       const key = (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
       if (!key) { toast('Add your OpenRouter key first', 'error'); return; }
 
       // Show it in the tray straight away so the UI stays responsive.
-      const entry = { irish: surface, english: '', from: phrase || '', pending: true };
+      const entry = { irish: selection, english: '', from: phrase || '', pending: true };
       ocrTray.push(entry);
       ocrPaint();
 
@@ -5160,7 +5169,7 @@ function getDueWords(wordsList) {
             temperature: 0,
             provider: { data_collection: 'deny', zdr: true, allow_fallbacks: true },
             usage: { include: true },
-            messages: [{ role: 'user', content: ocrLookupPrompt(surface, phrase) }],
+            messages: [{ role: 'user', content: ocrLookupPrompt(selection, phrase) }],
           }),
         });
         const json = await resp.json();
@@ -5172,7 +5181,7 @@ function getDueWords(wordsList) {
         const found = (ocrParseJson(text).words || [])[0];
         if (!found) throw new Error('no translation returned');
 
-        const ga = String(found.irish || surface).trim();
+        const ga = String(found.irish || selection).trim();
         const en = String(found.english || '').trim();
         // The dictionary form may already be in the tray from another line.
         const clash = ocrTray.some((t) => t !== entry && ocrKey(t.irish) === ocrKey(ga));
