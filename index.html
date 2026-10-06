@@ -4682,7 +4682,8 @@ function getDueWords(wordsList) {
         '.ocr-tray .ocr-card{background:#fff}',
         '.ocr-tray .ocr-card .ga::before{content:"✓ ";font-weight:700;color:#1f7a3d}',
         '.ocr-tray .ocr-card .en::after{content:"  ×";opacity:.5}',
-        '.ocr-phrase{display:inline;touch-action:pan-y;-webkit-user-select:none;user-select:none}',
+        '.ocr-phrase{display:inline;-webkit-user-select:none;user-select:none}',
+        '.ocr-card{touch-action:pan-y}',
         '.ocr-word.sel{background:#cfe9d8;border-bottom-color:#1f7a3d}',
       ].join('\n');
       document.head.appendChild(s);
@@ -5414,11 +5415,34 @@ function getDueWords(wordsList) {
       return toks.slice(lo, hi + 1).join('').trim();
     }
 
+    // The word nearest a point, by geometry rather than elementFromPoint.
+    //
+    // elementFromPoint returns the whitespace span when the pointer is between
+    // two words, so a drag stopped tracking as soon as it crossed a space. It
+    // also meant a press that landed on the card's padding — which is exactly
+    // where the start of a sentence sits — never began a drag at all.
+    function ocrWordAt(card, x, y) {
+      const words = card.querySelectorAll('[data-ocr-word]');
+      let best = null;
+      let bestDist = Infinity;
+      words.forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const dx = Math.max(r.left - x, 0, x - r.right);
+        const dy = Math.max(r.top - y, 0, y - r.bottom);
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; best = el; }
+      });
+      return best;
+    }
+
     function ocrDragStart(e) {
-      const w = e.target.closest ? e.target.closest('[data-ocr-word]') : null;
-      if (!w) return;
-      const card = w.closest('[data-ocr-pick]');
+      const card = e.target.closest ? e.target.closest('[data-ocr-pick]') : null;
       if (!card) return;
+      // Only phrase cards have words to sweep; a word card is just a tap target.
+      if (!card.querySelector('[data-ocr-word]')) return;
+
+      const w = ocrWordAt(card, e.clientX, e.clientY);
+      if (!w) return;
       ocrDrag = {
         card: Number(card.dataset.ocrPick),
         start: Number(w.dataset.ocrWidx),
@@ -5431,11 +5455,12 @@ function getDueWords(wordsList) {
 
     function ocrDragMove(e) {
       if (!ocrDrag) return;
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const w = el && el.closest ? el.closest('[data-ocr-word]') : null;
+      const wrap = document.getElementById('ocr-results');
+      if (!wrap) return;
+      const card = wrap.querySelector('[data-ocr-pick="' + ocrDrag.card + '"]');
+      if (!card) return;
+      const w = ocrWordAt(card, e.clientX, e.clientY);
       if (!w) return;
-      const card = w.closest('[data-ocr-pick]');
-      if (!card || Number(card.dataset.ocrPick) !== ocrDrag.card) return;
       const idx = Number(w.dataset.ocrWidx);
       if (idx === ocrDrag.end) return;
       ocrDrag.end = idx;
