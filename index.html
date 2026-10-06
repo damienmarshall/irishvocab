@@ -4659,6 +4659,9 @@ function getDueWords(wordsList) {
         '.ocr-pill.known{background:#eee;color:#555;border-color:rgba(0,0,0,.15)}',
         '.ocr-pill.bad{background:#f7d7d7;color:#8a1c1c;border-color:rgba(138,28,28,.3)}',
         '.ocr-pill.phrase{background:#e8eefc;color:#2b4a8a;border-color:rgba(43,74,138,.3)}',
+        '.ocr-word{cursor:pointer;border-bottom:1px dotted rgba(0,0,0,.35)}',
+        '.ocr-word:hover{background:#fff3c4;border-bottom-color:#1f7a3d}',
+        '.ocr-card.pending{opacity:.6}',
       ].join('\n');
       document.head.appendChild(s);
     }
@@ -5072,6 +5075,91 @@ function getDueWords(wordsList) {
       return { v: 'reject', why: 'no Irish shape' };
     }
 
+    // Look up one word, using the phrase it came from as context.
+    //
+    // The clicked word becomes a card straight away (marked pending) so the UI
+    // stays responsive, then fills in when the answer arrives. Measured cost:
+    // about $0.00001 per lookup, under a second.
+    function ocrLookupPrompt(surface, phrase) {
+      return [
+        "You are a dictionary for an Irish learner's app.",
+        phrase
+          ? 'The learner tapped the word "' + surface + '" inside this Irish sentence:\n"' +
+            phrase + '"\n\nUse the sentence as context to work out what the word is.'
+          : '',
+        'Return:',
+        '  - "surface": the word exactly as given',
+        '  - "irish": the same word in dictionary form (nominative singular for a noun,' +
+          ' imperative for a verb)',
+        '  - "english": the English for that dictionary form',
+        'Preserve fadas (á é í ó ú) EXACTLY. If the word is not Irish, omit it.',
+        'Return ONLY valid JSON, no markdown fences, no commentary: ' +
+          '{"words":[{"surface":"...","irish":"...","english":"..."}]}',
+      ].filter(Boolean).join('\n');
+    }
+
+    async function ocrLookupWord(surface, phrase) {
+      const keyEl = document.getElementById('ocr-key');
+      const key = (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
+      if (!key) { toast('Add your OpenRouter key first', 'error'); return; }
+
+      const card = {
+        kind: 'word',
+        irish: surface,
+        english: '',
+        from: phrase || '',
+        keep: false,
+        verdict: 'review',
+        why: 'looking up…',
+        known: false,
+        pending: true,
+      };
+      ocrPairs.push(card);
+      ocrPaint();
+
+      try {
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + key,
+            'Content-Type': 'application/json',
+            'X-Title': 'Irish Learner',
+          },
+          body: JSON.stringify({
+            model: document.getElementById('ocr-model').value,
+            max_tokens: 300,
+            temperature: 0,
+            provider: { data_collection: 'deny', zdr: true, allow_fallbacks: true },
+            usage: { include: true },
+            messages: [{ role: 'user', content: ocrLookupPrompt(surface, phrase) }],
+          }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+          throw new Error((json && json.error && json.error.message) || ('HTTP ' + resp.status));
+        }
+        const text = (json.choices && json.choices[0] && json.choices[0].message &&
+          json.choices[0].message.content) || '';
+        const found = (ocrParseJson(text).words || [])[0];
+        if (!found) throw new Error('no translation returned');
+
+        card.irish = String(found.irish || surface).trim();
+        card.english = String(found.english || '').trim();
+        card.pending = false;
+        const v = ocrVerdict(card);
+        card.verdict = v.v;
+        card.why = v.why;
+        card.known = ocrIsInDeck(card.irish);
+        card.keep = v.v !== 'reject' && !card.known;
+      } catch (err) {
+        card.pending = false;
+        card.verdict = 'reject';
+        card.why = 'lookup failed: ' + ((err && err.message) || err);
+        card.keep = false;
+      }
+      ocrPaint();
+    }
+
     // Turn the model's phrase-level output into the list of things the user can
     // actually save.
     //
@@ -5232,9 +5320,19 @@ function getDueWords(wordsList) {
 
       if (ocrView === 'board') {
         wrap.querySelectorAll('[data-ocr-pick]').forEach((el) => {
-          el.addEventListener('click', () => {
+          el.addEventListener('click', (e) => {
             const i = Number(el.dataset.ocrPick);
             if (!ocrPairs[i]) return;
+
+            // A click on a word inside a phrase means "make this a card", not
+            // "toggle the phrase".
+            const wordEl = e.target.closest ? e.target.closest('[data-ocr-word]') : null;
+            if (wordEl) {
+              e.stopPropagation();
+              ocrLookupWord(wordEl.dataset.ocrWord, ocrPairs[i].irish);
+              return;
+            }
+
             ocrPairs[i].keep = !ocrPairs[i].keep;
             el.classList.toggle('sel', ocrPairs[i].keep);
             ocrUpdateSummary();
@@ -5258,18 +5356,36 @@ function getDueWords(wordsList) {
       if (p.keep) cls.push('sel');
       if (p.known) cls.push('known');
       if (p.verdict === 'reject') cls.push('bad');
-      const pill = p.known
-        ? '<span class="ocr-pill known">saved</span>'
-        : p.verdict !== 'accept'
-          ? '<span class="ocr-pill bad">check</span>'
-          : p.kind === 'phrase'
-            ? '<span class="ocr-pill phrase">phrase</span>'
-            : '<span class="ocr-pill">new</span>';
+      if (p.pending) cls.push('pending');
+
+      const pill = p.pending
+        ? '<span class="ocr-pill">…</span>'
+        : p.known
+          ? '<span class="ocr-pill known">saved</span>'
+          : p.verdict !== 'accept'
+            ? '<span class="ocr-pill bad">check</span>'
+            : p.kind === 'phrase'
+              ? '<span class="ocr-pill phrase">phrase</span>'
+              : '<span class="ocr-pill">new</span>';
+
+      // In a phrase every word is clickable: tapping one looks it up and turns it
+      // into its own card. The phrase is sent as context, because a word lifted
+      // out of a sentence gets mistranslated — measured: "thuis" came back as
+      // "tuig / understand" on its own, but "tuismitheoirí / parents" with the
+      // sentence supplied.
+      const gaHtml = p.kind === 'phrase'
+        ? String(p.irish).split(/(\s+)/).map((tok) => /^\s*$/.test(tok)
+          ? tok
+          : '<span class="ocr-word" data-ocr-word="' + ocrEscapeAttr(tok) + '">' +
+            ocrEscapeAttr(tok) + '</span>').join('')
+        : ocrEscapeAttr(p.irish);
+
       const title = (p.why || '') + (p.from ? ' — from: ' + p.from : '');
-      return '<button type="button" class="' + cls.join(' ') + '" data-ocr-pick="' + i + '"' +
+      return '<div class="' + cls.join(' ') + '" data-ocr-pick="' + i + '" role="button" tabindex="0"' +
         ' title="' + ocrEscapeAttr(title) + '">' +
-        '<span class="ga">' + ocrEscapeAttr(p.irish) + '</span>' +
-        '<span class="en">' + ocrEscapeAttr(p.english) + '</span>' + pill + '</button>';
+        '<span class="ga">' + gaHtml + '</span>' +
+        '<span class="en">' + (p.pending ? 'looking up…' : ocrEscapeAttr(p.english)) + '</span>' +
+        pill + '</div>';
     }
 
     // The board: words you can click, grouped so the useful ones are first.
@@ -5295,7 +5411,7 @@ function getDueWords(wordsList) {
 
       let html = '';
       html += section('Words', buckets.words);
-      html += section('Phrases', buckets.phrases, 'more than one word');
+      html += section('Phrases', buckets.phrases, 'tap any word in a phrase to make it a card');
       if (!skipKnown) html += section('Already in your deck', buckets.known);
       html += section('Worth a look', buckets.check, 'unclear or not recognised as Irish');
 
