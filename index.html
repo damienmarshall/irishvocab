@@ -4593,10 +4593,17 @@ function getDueWords(wordsList) {
     const OCR_JSON_RULE =
       ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"...","line":1}]}';
 
-    // The point is flashcards, not a transcript. Left to itself the model returns
-    // whole sentences, which are unusable as cards and make the list hard to scan.
-    const OCR_WORDS_RULE = ' Return individual words and short phrases (at most three words).' +
-      ' Do not return full sentences. Prefer content words over grammatical particles.';
+    // Do NOT cap the length of an item.
+    //
+    // Measured regression: forcing "at most three words" chopped Irish prose into
+    // fragments and the translations went wrong — "chabhraigh sé go mór léi" ->
+    // "it helped her so much" became "dán chuig Mámo" -> "to Mámo". A fragment
+    // has no context left to translate. Length is handled on the client instead,
+    // with the "phrase" tag and the "Hide phrases" filter, so the model can keep
+    // phrases intact and the user still gets a short list.
+    const OCR_WORDS_RULE = ' Keep each item as the natural unit that carries the meaning — a' +
+      ' single word, or the whole phrase if the phrase is what translates. Do not chop a phrase' +
+      ' into fragments: a fragment translates wrongly. Skip titles and headings.';
 
     // Reading order is what makes the list matchable against the page. Measured:
     // the model's line numbers are accurate and monotonic — the word book came
