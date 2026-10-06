@@ -2283,6 +2283,16 @@
 
         <div id="ocr-status" class="quickadd-status" role="status" aria-live="polite"></div>
 
+        <!-- The tray: everything picked, in the order it was picked. This is the
+             list that gets added, so it sits above the source material. -->
+        <div id="ocr-tray" class="ocr-tray" hidden>
+          <div class="ocr-tray-head">
+            <strong id="ocr-tray-count">Nothing picked yet</strong>
+            <button type="button" class="btn btn-outline btn-sm" id="ocr-tray-clear">Clear</button>
+          </div>
+          <div id="ocr-tray-list" class="ocr-board"></div>
+        </div>
+
         <div class="ocr-row" id="ocr-toolbar" hidden>
           <label class="ocr-check"><input type="checkbox" id="ocr-hide-known" checked>
             Hide words I already have</label>
@@ -4553,6 +4563,9 @@ function getDueWords(wordsList) {
     let ocrView = 'board';  // 'board' (click words) | 'edit' (fix spellings)
     let ocrNote = '';       // scale note shown under the results
     let ocrGateFailed = false;
+    let ocrTray = [];       // picked cards, in the order picked — this is what gets added
+    let ocrDrag = null;     // in-progress drag across words in a phrase
+    let ocrSuppressClick = false;
 
     // Used to veto English that the model put in the "irish" column.
     const OCR_COMMON_ENGLISH = new Set(('the and for with this that these those from into over under ' +
@@ -4662,6 +4675,15 @@ function getDueWords(wordsList) {
         '.ocr-word{cursor:pointer;border-bottom:1px dotted rgba(0,0,0,.35)}',
         '.ocr-word:hover{background:#fff3c4;border-bottom-color:#1f7a3d}',
         '.ocr-card.pending{opacity:.6}',
+        '.ocr-tray{border:1px solid rgba(31,122,61,.35);background:rgba(230,244,234,.5);border-radius:10px;padding:.5rem .6rem;margin-bottom:.6rem}',
+        '.ocr-tray[hidden]{display:none!important}',
+        '.ocr-tray-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem}',
+        '.ocr-tray-head strong{font-size:.82rem}',
+        '.ocr-tray .ocr-card{background:#fff}',
+        '.ocr-tray .ocr-card .ga::before{content:"✓ ";font-weight:700;color:#1f7a3d}',
+        '.ocr-tray .ocr-card .en::after{content:"  ×";opacity:.5}',
+        '.ocr-phrase{display:inline;touch-action:pan-y;-webkit-user-select:none;user-select:none}',
+        '.ocr-word.sel{background:#cfe9d8;border-bottom-color:#1f7a3d}',
       ].join('\n');
       document.head.appendChild(s);
     }
@@ -4726,13 +4748,29 @@ function getDueWords(wordsList) {
 
       document.getElementById('ocr-hide-known').addEventListener('change', ocrPaint);
       document.getElementById('ocr-select-new').addEventListener('click', () => {
-        ocrPairs.forEach((p) => { p.keep = p.verdict !== 'reject' && !p.known; });
+        ocrPairs.forEach((p) => {
+          if (p.verdict !== 'reject' && !p.known && p.kind === 'word') {
+            ocrTrayAdd(p.irish, p.english, p.from);
+          }
+        });
         ocrPaint();
       });
       document.getElementById('ocr-select-none').addEventListener('click', () => {
-        ocrPairs.forEach((p) => { p.keep = false; });
+        ocrTrayClear();
         ocrPaint();
       });
+      document.getElementById('ocr-tray-clear').addEventListener('click', () => {
+        ocrTrayClear();
+        ocrPaint();
+      });
+
+      // Bound once, on the container: the cards inside are replaced on every
+      // paint, so per-card listeners would stack up.
+      const results = document.getElementById('ocr-results');
+      results.addEventListener('pointerdown', ocrDragStart);
+      results.addEventListener('pointermove', ocrDragMove);
+      results.addEventListener('pointerup', ocrDragEnd);
+      results.addEventListener('pointercancel', ocrDragCancel);
       document.getElementById('ocr-view-toggle').addEventListener('click', () => {
         ocrView = ocrView === 'board' ? 'edit' : 'board';
         ocrPaint();
@@ -5103,18 +5141,9 @@ function getDueWords(wordsList) {
       const key = (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
       if (!key) { toast('Add your OpenRouter key first', 'error'); return; }
 
-      const card = {
-        kind: 'word',
-        irish: surface,
-        english: '',
-        from: phrase || '',
-        keep: false,
-        verdict: 'review',
-        why: 'looking up…',
-        known: false,
-        pending: true,
-      };
-      ocrPairs.push(card);
+      // Show it in the tray straight away so the UI stays responsive.
+      const entry = { irish: surface, english: '', from: phrase || '', pending: true };
+      ocrTray.push(entry);
       ocrPaint();
 
       try {
@@ -5143,19 +5172,21 @@ function getDueWords(wordsList) {
         const found = (ocrParseJson(text).words || [])[0];
         if (!found) throw new Error('no translation returned');
 
-        card.irish = String(found.irish || surface).trim();
-        card.english = String(found.english || '').trim();
-        card.pending = false;
-        const v = ocrVerdict(card);
-        card.verdict = v.v;
-        card.why = v.why;
-        card.known = ocrIsInDeck(card.irish);
-        card.keep = v.v !== 'reject' && !card.known;
+        const ga = String(found.irish || surface).trim();
+        const en = String(found.english || '').trim();
+        // The dictionary form may already be in the tray from another line.
+        const clash = ocrTray.some((t) => t !== entry && ocrKey(t.irish) === ocrKey(ga));
+        if (clash) {
+          ocrTray = ocrTray.filter((t) => t !== entry);
+        } else {
+          entry.irish = ga;
+          entry.english = en;
+          entry.pending = false;
+        }
       } catch (err) {
-        card.pending = false;
-        card.verdict = 'reject';
-        card.why = 'lookup failed: ' + ((err && err.message) || err);
-        card.keep = false;
+        entry.pending = false;
+        entry.english = 'lookup failed';
+        toast('Could not look that word up', 'error');
       }
       ocrPaint();
     }
@@ -5184,9 +5215,6 @@ function getDueWords(wordsList) {
         card.verdict = v.v;
         card.why = v.why;
         card.known = ocrIsInDeck(irish);
-        // Default to "the new words, ready to go": words they already have are
-        // not worth re-adding, rejects stay unticked, and phrases are opt-in.
-        card.keep = v.v !== 'reject' && !card.known && kind === 'word';
         cards.push(card);
       };
 
@@ -5321,39 +5349,184 @@ function getDueWords(wordsList) {
       if (ocrView === 'board') {
         wrap.querySelectorAll('[data-ocr-pick]').forEach((el) => {
           el.addEventListener('click', (e) => {
-            const i = Number(el.dataset.ocrPick);
-            if (!ocrPairs[i]) return;
+            // A drag just handled this; do not also treat it as a tap.
+            if (ocrSuppressClick) { ocrSuppressClick = false; return; }
 
-            // A click on a word inside a phrase means "make this a card", not
-            // "toggle the phrase".
+            const i = Number(el.dataset.ocrPick);
+            const p = ocrPairs[i];
+            if (!p) return;
+
+            // A click on a word inside a phrase means "pick this word", not the
+            // whole phrase.
             const wordEl = e.target.closest ? e.target.closest('[data-ocr-word]') : null;
             if (wordEl) {
               e.stopPropagation();
-              ocrLookupWord(wordEl.dataset.ocrWord, ocrPairs[i].irish);
+              ocrLookupWord(wordEl.dataset.ocrWord, p.irish);
               return;
             }
 
-            ocrPairs[i].keep = !ocrPairs[i].keep;
-            el.classList.toggle('sel', ocrPairs[i].keep);
-            ocrUpdateSummary();
+            if (ocrTrayHas(p.irish)) ocrTrayRemove(p.irish);
+            else ocrTrayAdd(p.irish, p.english, p.from);
+            ocrPaint();
           });
         });
       } else {
-        wrap.querySelectorAll('input').forEach((el) => {
+        // Edit view: the checkbox means "in the tray"; the text fields edit the
+        // extracted text.
+        wrap.querySelectorAll('input[data-ocr-keep]').forEach((el) => {
+          el.addEventListener('change', () => {
+            const p = ocrPairs[Number(el.dataset.ocrKeep)];
+            if (!p) return;
+            if (el.checked) ocrTrayAdd(p.irish, p.english, p.from);
+            else ocrTrayRemove(p.irish);
+            ocrTrayRender();
+          });
+        });
+        wrap.querySelectorAll('input[data-ocr-irish], input[data-ocr-english]').forEach((el) => {
           el.addEventListener('input', ocrOnEdit);
-          el.addEventListener('change', ocrOnEdit);
         });
       }
 
       const toggle = document.getElementById('ocr-view-toggle');
       if (toggle) toggle.textContent = ocrView === 'board' ? 'Fix a word' : 'Back to words';
+      ocrTrayRender();
       ocrUpdateSummary();
+    }
+
+    // ── Drag across words in a phrase to pick the whole span ──
+    //
+    // Pointer events cover mouse and touch with one code path. The phrase text
+    // is `touch-action: pan-y`, so a vertical swipe still scrolls the page on a
+    // phone while a horizontal sweep selects words.
+    function ocrPhraseSlice(phrase, a, b) {
+      const toks = String(phrase).split(/(\s+)/);
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b);
+      return toks.slice(lo, hi + 1).join('').trim();
+    }
+
+    function ocrDragStart(e) {
+      const w = e.target.closest ? e.target.closest('[data-ocr-word]') : null;
+      if (!w) return;
+      const card = w.closest('[data-ocr-pick]');
+      if (!card) return;
+      ocrDrag = {
+        card: Number(card.dataset.ocrPick),
+        start: Number(w.dataset.ocrWidx),
+        end: Number(w.dataset.ocrWidx),
+      };
+      ocrPaintRange();
+      // Stop the browser turning this into a text selection.
+      if (e.pointerType === 'mouse') e.preventDefault();
+    }
+
+    function ocrDragMove(e) {
+      if (!ocrDrag) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const w = el && el.closest ? el.closest('[data-ocr-word]') : null;
+      if (!w) return;
+      const card = w.closest('[data-ocr-pick]');
+      if (!card || Number(card.dataset.ocrPick) !== ocrDrag.card) return;
+      const idx = Number(w.dataset.ocrWidx);
+      if (idx === ocrDrag.end) return;
+      ocrDrag.end = idx;
+      ocrPaintRange();
+    }
+
+    function ocrDragEnd() {
+      if (!ocrDrag) return;
+      const d = ocrDrag;
+      ocrDrag = null;
+      const p = ocrPairs[d.card];
+
+      if (d.start === d.end) {
+        // A tap, not a drag. Leave the DOM alone so the click still lands on the
+        // same element and handles it.
+        const wrap = document.getElementById('ocr-results');
+        if (wrap) wrap.querySelectorAll('.ocr-word.sel').forEach((el) => el.classList.remove('sel'));
+        return;
+      }
+
+      ocrSuppressClick = true;
+      const text = p ? ocrPhraseSlice(p.irish, d.start, d.end) : '';
+      ocrPaint();
+      if (text && p) ocrLookupWord(text, p.irish);
+    }
+
+    function ocrDragCancel() {
+      if (!ocrDrag) return;
+      ocrDrag = null;
+      ocrPaint();
+    }
+
+    function ocrPaintRange() {
+      if (!ocrDrag) return;
+      const wrap = document.getElementById('ocr-results');
+      if (!wrap) return;
+      const card = wrap.querySelector('[data-ocr-pick="' + ocrDrag.card + '"]');
+      if (!card) return;
+      const lo = Math.min(ocrDrag.start, ocrDrag.end);
+      const hi = Math.max(ocrDrag.start, ocrDrag.end);
+      card.querySelectorAll('[data-ocr-word]').forEach((el) => {
+        const idx = Number(el.dataset.ocrWidx);
+        el.classList.toggle('sel', idx >= lo && idx <= hi);
+      });
+    }
+
+    // ── The tray: what the user has picked, in the order they picked it ──
+    function ocrTrayHas(irish) {
+      const k = ocrKey(irish);
+      return !!k && ocrTray.some((t) => ocrKey(t.irish) === k);
+    }
+
+    function ocrTrayAdd(irish, english, from) {
+      const ga = String(irish || '').trim();
+      const en = String(english || '').trim();
+      if (!ga || !en) return false;
+      if (ocrTrayHas(ga)) return false;
+      ocrTray.push({ irish: ga, english: en, from: from || '', pending: false });
+      return true;
+    }
+
+    function ocrTrayRemove(irish) {
+      const k = ocrKey(irish);
+      ocrTray = ocrTray.filter((t) => ocrKey(t.irish) !== k);
+    }
+
+    function ocrTrayClear() {
+      ocrTray = [];
+    }
+
+    function ocrTrayRender() {
+      const wrap = document.getElementById('ocr-tray');
+      const list = document.getElementById('ocr-tray-list');
+      const count = document.getElementById('ocr-tray-count');
+      if (!wrap || !list) return;
+
+      wrap.hidden = ocrTray.length === 0;
+      if (count) {
+        count.textContent = ocrTray.length ? ocrTray.length + ' to add' : 'Nothing picked yet';
+      }
+      list.innerHTML = ocrTray.map((t, i) =>
+        '<div class="ocr-card sel' + (t.pending ? ' pending' : '') + '" data-ocr-tray="' + i + '"' +
+        ' role="button" tabindex="0" title="' + ocrEscapeAttr(t.from ? 'from: ' + t.from : '') + '">' +
+        '<span class="ga">' + ocrEscapeAttr(t.irish) + '</span>' +
+        '<span class="en">' + (t.pending ? 'looking up…' : ocrEscapeAttr(t.english)) + '</span></div>'
+      ).join('');
+
+      list.querySelectorAll('[data-ocr-tray]').forEach((el) => {
+        el.addEventListener('click', () => {
+          const i = Number(el.dataset.ocrTray);
+          if (ocrTray[i]) ocrTrayRemove(ocrTray[i].irish);
+          ocrPaint();
+        });
+      });
     }
 
     function ocrCardHtml(i) {
       const p = ocrPairs[i];
       const cls = ['ocr-card'];
-      if (p.keep) cls.push('sel');
+      if (ocrTrayHas(p.irish)) cls.push('sel');
       if (p.known) cls.push('known');
       if (p.verdict === 'reject') cls.push('bad');
       if (p.pending) cls.push('pending');
@@ -5373,11 +5546,13 @@ function getDueWords(wordsList) {
       // out of a sentence gets mistranslated — measured: "thuis" came back as
       // "tuig / understand" on its own, but "tuismitheoirí / parents" with the
       // sentence supplied.
+      // Each word carries its index in the split, so a drag can be turned back
+      // into the exact span of text the user swept over.
       const gaHtml = p.kind === 'phrase'
-        ? String(p.irish).split(/(\s+)/).map((tok) => /^\s*$/.test(tok)
+        ? '<span class="ocr-phrase">' + String(p.irish).split(/(\s+)/).map((tok, idx) => /^\s*$/.test(tok)
           ? tok
-          : '<span class="ocr-word" data-ocr-word="' + ocrEscapeAttr(tok) + '">' +
-            ocrEscapeAttr(tok) + '</span>').join('')
+          : '<span class="ocr-word" data-ocr-word="' + ocrEscapeAttr(tok) + '" data-ocr-widx="' + idx + '">' +
+            ocrEscapeAttr(tok) + '</span>').join('') + '</span>'
         : ocrEscapeAttr(p.irish);
 
       const title = (p.why || '') + (p.from ? ' — from: ' + p.from : '');
@@ -5440,7 +5615,7 @@ function getDueWords(wordsList) {
     function ocrTableHtml() {
       const rows = ocrPairs.map((p, i) =>
         '<tr' + (p.verdict === 'reject' ? ' class="ocr-row-warn"' : '') + '>' +
-        '<td><input type="checkbox" data-ocr-keep="' + i + '"' + (p.keep ? ' checked' : '') + '></td>' +
+        '<td><input type="checkbox" data-ocr-keep="' + i + '"' + (ocrTrayHas(p.irish) ? ' checked' : '') + '></td>' +
         '<td><input type="text" data-ocr-irish="' + i + '" value="' + ocrEscapeAttr(p.irish) + '"></td>' +
         '<td><input type="text" data-ocr-english="' + i + '" value="' + ocrEscapeAttr(p.english) + '"></td>' +
         '<td><span class="ocr-badge ' + p.verdict + '" title="' + ocrEscapeAttr(p.why) + '">' +
@@ -5460,10 +5635,6 @@ function getDueWords(wordsList) {
       wrap.querySelectorAll('input[data-ocr-english]').forEach((el) => {
         const i = Number(el.dataset.ocrEnglish);
         if (ocrPairs[i]) ocrPairs[i].english = el.value;
-      });
-      wrap.querySelectorAll('input[data-ocr-keep]').forEach((el) => {
-        const i = Number(el.dataset.ocrKeep);
-        if (ocrPairs[i]) ocrPairs[i].keep = el.checked;
       });
     }
 
@@ -5489,30 +5660,25 @@ function getDueWords(wordsList) {
     }
 
     function ocrUpdateSummary() {
-      const kept = ocrPairs.filter((p) => p.keep);
-      const review = kept.filter((p) => p.verdict === 'review').length;
-      const wrong = kept.filter((p) => p.verdict === 'reject').length;
-      const bits = [kept.length + ' selected'];
-      if (review) bits.push(review + ' to double-check');
-      if (wrong) bits.push(wrong + ' look wrong');
       const el = document.getElementById('ocr-summary');
-      if (el) el.textContent = bits.join(' · ');
-      return kept;
+      if (el) {
+        el.textContent = ocrTray.length ? ocrTray.length + ' picked' : 'Nothing picked yet';
+      }
+      return ocrTray;
     }
 
     function ocrAddSelected() {
       // Re-read the inputs: the user may have corrected them by hand.
       ocrCollect();
-      const kept = ocrPairs.filter((p) => p.keep);
-      if (!kept.length) { toast('Nothing selected', 'error'); return; }
+      if (!ocrTray.length) { toast('Nothing picked yet', 'error'); return; }
 
       let added = 0;
       let dupes = 0;
       let unusable = 0;
-      kept.forEach((p) => {
-        const irish = p.irish.trim();
-        const english = p.english.trim();
-        if (!irish || !english) { unusable++; return; }
+      ocrTray.forEach((t) => {
+        const irish = String(t.irish || '').trim();
+        const english = String(t.english || '').trim();
+        if (!irish || !english || t.pending) { unusable++; return; }
         const result = qaAddWord(irish, english);
         if (result === 'ok') added++;
         else if (result === 'duplicate') dupes++;
@@ -5527,6 +5693,8 @@ function getDueWords(wordsList) {
         added ? 'success' : 'error');
 
       if (added) {
+        ocrTrayClear();
+        ocrPaint();
         qaScheduleSync();
         qaRefreshDeckSoon();
       }
