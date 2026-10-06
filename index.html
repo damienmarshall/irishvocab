@@ -4591,11 +4591,6 @@ function getDueWords(wordsList) {
     const OCR_JSON_RULE =
       ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
 
-    // The point is flashcards, not a transcript. Left to itself the model returns
-    // whole sentences, which are unusable as cards and make the list hard to scan.
-    const OCR_WORDS_RULE = ' Return individual words and short phrases (at most three words).' +
-      ' Do not return full sentences. Prefer content words over grammatical particles.';
-
     function ocrIsAllowed(session) {
       const email = ((session && session.email) || '').trim().toLowerCase();
       return OCR_TEST_EMAILS.includes(email);
@@ -4920,7 +4915,7 @@ function getDueWords(wordsList) {
     function ocrBuildContent(mode, kind, shot) {
       if (mode !== 'tap') {
         return [
-          { type: 'text', text: OCR_PROMPTS[kind] + OCR_WORDS_RULE + OCR_JSON_RULE },
+          { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
           { type: 'image_url', image_url: { url: shot.dataUrl } },
         ];
       }
