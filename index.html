@@ -2286,8 +2286,6 @@
         <div class="ocr-row" id="ocr-toolbar" hidden>
           <label class="ocr-check"><input type="checkbox" id="ocr-hide-known" checked>
             Hide words I already have</label>
-          <label class="ocr-check"><input type="checkbox" id="ocr-hide-phrases">
-            Hide phrases</label>
           <button type="button" class="btn btn-outline btn-sm" id="ocr-select-new">Select all new</button>
           <button type="button" class="btn btn-outline btn-sm" id="ocr-select-none">Clear</button>
           <button type="button" class="btn btn-outline btn-sm" id="ocr-view-toggle">Fix a word</button>
@@ -4591,26 +4589,12 @@ function getDueWords(wordsList) {
     };
 
     const OCR_JSON_RULE =
-      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"...","line":1}]}';
+      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
 
-    // Do NOT cap the length of an item.
-    //
-    // Measured regression: forcing "at most three words" chopped Irish prose into
-    // fragments and the translations went wrong — "chabhraigh sé go mór léi" ->
-    // "it helped her so much" became "dán chuig Mámo" -> "to Mámo". A fragment
-    // has no context left to translate. Length is handled on the client instead,
-    // with the "phrase" tag and the "Hide phrases" filter, so the model can keep
-    // phrases intact and the user still gets a short list.
-    const OCR_WORDS_RULE = ' Keep each item as the natural unit that carries the meaning — a' +
-      ' single word, or the whole phrase if the phrase is what translates. Do not chop a phrase' +
-      ' into fragments: a fragment translates wrongly. Skip titles and headings.';
-
-    // Reading order is what makes the list matchable against the page. Measured:
-    // the model's line numbers are accurate and monotonic — the word book came
-    // back as lines 4/6/8/10, exactly its four rows of labels.
-    const OCR_ORDER_RULE = ' Return the pairs in READING ORDER: top to bottom, then left to right' +
-      ' within a line. Give each pair a "line" number, counting lines of text from the top of the' +
-      ' page starting at 1.';
+    // The point is flashcards, not a transcript. Left to itself the model returns
+    // whole sentences, which are unusable as cards and make the list hard to scan.
+    const OCR_WORDS_RULE = ' Return individual words and short phrases (at most three words).' +
+      ' Do not return full sentences. Prefer content words over grammatical particles.';
 
     function ocrIsAllowed(session) {
       const email = ((session && session.email) || '').trim().toLowerCase();
@@ -4662,13 +4646,9 @@ function getDueWords(wordsList) {
         '.ocr-card .ga{font-weight:600}',
         '.ocr-card .en{opacity:.7;font-size:.75rem}',
         '.ocr-card.sel .ga::before{content:"✓ ";font-weight:700;color:#1f7a3d}',
-        '.ocr-pill{font-size:.6rem;border-radius:999px;padding:.05rem .3rem;background:#e6f4ea;color:#1f7a3d;border:1px solid rgba(31,122,61,.35)}',
+        '.ocr-pill{position:absolute;top:-.45rem;right:-.3rem;font-size:.6rem;border-radius:999px;padding:.05rem .3rem;background:#e6f4ea;color:#1f7a3d;border:1px solid rgba(31,122,61,.35)}',
         '.ocr-pill.known{background:#eee;color:#555;border-color:rgba(0,0,0,.15)}',
         '.ocr-pill.bad{background:#f7d7d7;color:#8a1c1c;border-color:rgba(138,28,28,.3)}',
-        '.ocr-pill.phrase{background:#e8eefc;color:#2b4a8a;border-color:rgba(43,74,138,.3)}',
-        '.ocr-tags{display:flex;gap:.2rem;margin-top:.15rem}',
-        '.ocr-line{display:flex;align-items:flex-start;gap:.4rem;margin-bottom:.1rem}',
-        '.ocr-line-no{font-size:.65rem;opacity:.4;min-width:1.1rem;text-align:right;padding-top:.5rem}',
       ].join('\n');
       document.head.appendChild(s);
     }
@@ -4732,7 +4712,6 @@ function getDueWords(wordsList) {
       });
 
       document.getElementById('ocr-hide-known').addEventListener('change', ocrPaint);
-      document.getElementById('ocr-hide-phrases').addEventListener('change', ocrPaint);
       document.getElementById('ocr-select-new').addEventListener('click', () => {
         ocrPairs.forEach((p) => { p.keep = p.verdict !== 'reject' && !p.known; });
         ocrPaint();
@@ -4941,7 +4920,7 @@ function getDueWords(wordsList) {
     function ocrBuildContent(mode, kind, shot) {
       if (mode !== 'tap') {
         return [
-          { type: 'text', text: OCR_PROMPTS[kind] + OCR_WORDS_RULE + OCR_ORDER_RULE + OCR_JSON_RULE },
+          { type: 'text', text: OCR_PROMPTS[kind] + OCR_WORDS_RULE + OCR_JSON_RULE },
           { type: 'image_url', image_url: { url: shot.dataUrl } },
         ];
       }
@@ -5157,8 +5136,6 @@ function getDueWords(wordsList) {
           pair.verdict = v.v;
           pair.why = v.why;
           pair.known = ocrIsInDeck(pair.irish);
-          pair.line = typeof p.line === 'number' ? p.line : null;
-          pair.phrase = String(pair.irish).trim().split(/\s+/).filter(Boolean).length > 3;
           // Default to "the new words, ready to go": words they already have are
           // not worth re-adding, and rejects stay unticked.
           pair.keep = v.v !== 'reject' && !pair.known;
@@ -5242,73 +5219,52 @@ function getDueWords(wordsList) {
       if (p.keep) cls.push('sel');
       if (p.known) cls.push('known');
       if (p.verdict === 'reject') cls.push('bad');
-      const tags = [];
-      if (p.known) tags.push('<span class="ocr-pill known">saved</span>');
-      else if (p.verdict === 'accept') tags.push('<span class="ocr-pill">new</span>');
-      else tags.push('<span class="ocr-pill bad">check</span>');
-      if (p.phrase) tags.push('<span class="ocr-pill phrase">phrase</span>');
-
+      const pill = p.known
+        ? '<span class="ocr-pill known">saved</span>'
+        : p.verdict === 'accept'
+          ? '<span class="ocr-pill">new</span>'
+          : '<span class="ocr-pill bad">check</span>';
       return '<button type="button" class="' + cls.join(' ') + '" data-ocr-pick="' + i + '"' +
         ' title="' + ocrEscapeAttr(p.why || '') + '">' +
         '<span class="ga">' + ocrEscapeAttr(p.irish) + '</span>' +
-        '<span class="en">' + ocrEscapeAttr(p.english) + '</span>' +
-        '<span class="ocr-tags">' + tags.join('') + '</span></button>';
+        '<span class="en">' + ocrEscapeAttr(p.english) + '</span>' + pill + '</button>';
     }
 
-    // The board, in DOCUMENT ORDER so it can be matched against the page.
-    //
-    // Quality is carried by tags on each word rather than by reordering, because
-    // reordering is exactly what made the list hard to line up with the photo.
-    // Words are grouped into rows by the model's line number, so the layout
-    // mirrors the page.
+    // The board: words you can click, grouped so the useful ones are first.
     function ocrBoardHtml() {
-      const knownEl = document.getElementById('ocr-hide-known');
-      const phraseEl = document.getElementById('ocr-hide-phrases');
-      const skipKnown = !knownEl || knownEl.checked;
-      const skipPhrases = !!(phraseEl && phraseEl.checked);
+      const hideEl = document.getElementById('ocr-hide-known');
+      const skipKnown = !hideEl || hideEl.checked;
+      const buckets = { words: [], phrases: [], known: [], check: [] };
 
-      const ordered = ocrPairs
-        .map((p, i) => ({ p: p, i: i }))
-        .filter(({ p }) => !(skipKnown && p.known) && !(skipPhrases && p.phrase))
-        .sort((a, b) => {
-          const la = typeof a.p.line === 'number' ? a.p.line : Infinity;
-          const lb = typeof b.p.line === 'number' ? b.p.line : Infinity;
-          return la === lb ? a.i - b.i : la - lb;
-        });
+      ocrPairs.forEach((p, i) => {
+        const count = String(p.irish).trim().split(/\s+/).filter(Boolean).length;
+        if (p.verdict === 'reject') buckets.check.push(i);
+        else if (p.known) buckets.known.push(i);
+        else if (p.verdict === 'review') buckets.check.push(i);
+        else if (count > 3) buckets.phrases.push(i);
+        else buckets.words.push(i);
+      });
 
-      if (!ordered.length) {
-        return '<p class="ocr-hint">Nothing to show — try unticking a filter above.</p>' + ocrFootnote();
-      }
+      const section = (title, list, note) => list.length
+        ? '<div class="ocr-group-title">' + title + ' (' + list.length + ')' +
+          (note ? ' <span style="font-weight:400">— ' + note + '</span>' : '') + '</div>' +
+          '<div class="ocr-board">' + list.map(ocrCardHtml).join('') + '</div>'
+        : '';
 
       let html = '';
-      let line = null;
-      let row = [];
-      const flush = () => {
-        if (!row.length) return;
-        html += '<div class="ocr-line">' +
-          '<span class="ocr-line-no">' + (line === null ? '' : line) + '</span>' +
-          '<div class="ocr-board">' + row.join('') + '</div></div>';
-        row = [];
-      };
-      ordered.forEach(({ p, i }) => {
-        const l = typeof p.line === 'number' ? p.line : null;
-        if (l !== line) { flush(); line = l; }
-        row.push(ocrCardHtml(i));
-      });
-      flush();
+      html += section('Words', buckets.words);
+      html += section('Phrases', buckets.phrases, 'more than one word');
+      if (!skipKnown) html += section('Already in your deck', buckets.known);
+      html += section('Worth a look', buckets.check, 'unclear or not recognised as Irish');
 
-      const hidden = [];
-      if (skipKnown) {
-        const n = ocrPairs.filter((p) => p.known).length;
-        if (n) hidden.push(n + ' already saved');
-      }
-      if (skipPhrases) {
-        const n = ocrPairs.filter((p) => p.phrase && !p.known).length;
-        if (n) hidden.push(n + ' phrase' + (n === 1 ? '' : 's'));
-      }
-      if (hidden.length) html += '<p class="ocr-hint">Hidden: ' + hidden.join(', ') + '.</p>';
+      const hidden = skipKnown && buckets.known.length
+        ? '<p class="ocr-hint">' + buckets.known.length + ' word' +
+          (buckets.known.length === 1 ? '' : 's') + ' you already have hidden.</p>'
+        : '';
+      const empty = !buckets.words.length && !buckets.phrases.length &&
+        !buckets.check.length && (skipKnown || !buckets.known.length);
 
-      return html + ocrFootnote();
+      return (empty ? '<p class="ocr-hint">Nothing found in that image.</p>' : html + hidden) + ocrFootnote();
     }
 
     function ocrFootnote() {
