@@ -4589,7 +4589,21 @@ function getDueWords(wordsList) {
     };
 
     const OCR_JSON_RULE =
-      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
+      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"...","headword":"...","headword_english":"..."}]}';
+
+    // The phrase translates accurately because it has context; the headword is
+    // what makes a good flashcard. Ask for both, linked.
+    //
+    // Measured on a handwritten page: "Ba mhaith le Pádraigín a seomra féin a
+    // bheith aici" -> "Pádraigín wanted her own room" with headword
+    // "seomra" -> "room". On a printed word book every headword came back
+    // identical to the word, so single-word pages are unaffected.
+    const OCR_HEADWORD_RULE = ' For each item also give "headword": the single most useful word to' +
+      ' learn from it — the key noun, verb or adjective — in its dictionary form (nominative' +
+      ' singular for a noun, imperative for a verb), and "headword_english": the English for that' +
+      ' headword. If the item is already a single word, headword is the same as irish. Keep the' +
+      ' phrase intact in "irish": the phrase is what translates accurately, the headword is what' +
+      ' makes a good flashcard.';
 
     function ocrIsAllowed(session) {
       const email = ((session && session.email) || '').trim().toLowerCase();
@@ -4644,6 +4658,7 @@ function getDueWords(wordsList) {
         '.ocr-pill{position:absolute;top:-.45rem;right:-.3rem;font-size:.6rem;border-radius:999px;padding:.05rem .3rem;background:#e6f4ea;color:#1f7a3d;border:1px solid rgba(31,122,61,.35)}',
         '.ocr-pill.known{background:#eee;color:#555;border-color:rgba(0,0,0,.15)}',
         '.ocr-pill.bad{background:#f7d7d7;color:#8a1c1c;border-color:rgba(138,28,28,.3)}',
+        '.ocr-pill.phrase{background:#e8eefc;color:#2b4a8a;border-color:rgba(43,74,138,.3)}',
       ].join('\n');
       document.head.appendChild(s);
     }
@@ -4915,7 +4930,7 @@ function getDueWords(wordsList) {
     function ocrBuildContent(mode, kind, shot) {
       if (mode !== 'tap') {
         return [
-          { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
+          { type: 'text', text: OCR_PROMPTS[kind] + OCR_HEADWORD_RULE + OCR_JSON_RULE },
           { type: 'image_url', image_url: { url: shot.dataUrl } },
         ];
       }
@@ -5057,6 +5072,53 @@ function getDueWords(wordsList) {
       return { v: 'reject', why: 'no Irish shape' };
     }
 
+    // Turn the model's phrase-level output into the list of things the user can
+    // actually save.
+    //
+    // Each item becomes a "word" card (the headword — a good flashcard) and, when
+    // the headword differs from the phrase, a "phrase" card as well (the context,
+    // which is what translated accurately). Words are ticked by default; phrases
+    // are there if wanted. Measured: on a printed word book every headword came
+    // back identical to the word, so single-word pages produce one card each.
+    function ocrBuildCards(pairs) {
+      const cards = [];
+      const seen = new Set();
+
+      const push = (kind, ga, en, from) => {
+        const irish = String(ga || '').trim();
+        const english = String(en || '').trim();
+        const k = ocrKey(irish);
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+
+        const card = { kind: kind, irish: irish, english: english, from: from || '', keep: true };
+        const v = ocrVerdict(card);
+        card.verdict = v.v;
+        card.why = v.why;
+        card.known = ocrIsInDeck(irish);
+        // Default to "the new words, ready to go": words they already have are
+        // not worth re-adding, rejects stay unticked, and phrases are opt-in.
+        card.keep = v.v !== 'reject' && !card.known && kind === 'word';
+        cards.push(card);
+      };
+
+      pairs.forEach((p) => {
+        const irish = String(p.irish || '').trim();
+        const english = String(p.english || '').trim();
+        const head = String(p.headword || '').trim();
+        const headEn = String(p.headword_english || '').trim();
+
+        if (head && ocrKey(head) !== ocrKey(irish)) {
+          push('word', head, headEn || english, irish);
+          push('phrase', irish, english, '');
+        } else {
+          push('word', irish, english, '');
+        }
+      });
+
+      return cards;
+    }
+
     async function ocrRun() {
       const keyEl = document.getElementById('ocr-key');
       const key = (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
@@ -5125,27 +5187,9 @@ function getDueWords(wordsList) {
           return;
         }
 
-        ocrPairs = (parsed.pairs || []).map((p) => {
-          const pair = { irish: String(p.irish || ''), english: String(p.english || ''), keep: true };
-          const v = ocrVerdict(pair);
-          pair.verdict = v.v;
-          pair.why = v.why;
-          pair.known = ocrIsInDeck(pair.irish);
-          // Default to "the new words, ready to go": words they already have are
-          // not worth re-adding, and rejects stay unticked.
-          pair.keep = v.v !== 'reject' && !pair.known;
-          return pair;
-        });
-
-        // The model sometimes returns the same word twice with different casing
-        // (measured: "Fadhbanna déagóirí" and "fadhbanna déagóirí" in one run).
-        const seen = new Set();
-        ocrPairs = ocrPairs.filter((p) => {
-          const k = ocrKey(p.irish);
-          if (!k || seen.has(k)) return false;
-          seen.add(k);
-          return true;
-        });
+        // Dedupe happens inside ocrBuildCards, which also splits each item into
+        // a flashcard word and (when they differ) the phrase it came from.
+        ocrPairs = ocrBuildCards(parsed.pairs || []);
 
         if (!ocrPairs.length) {
           ocrStatus('No Irish words found in that image.', 'error');
@@ -5216,11 +5260,14 @@ function getDueWords(wordsList) {
       if (p.verdict === 'reject') cls.push('bad');
       const pill = p.known
         ? '<span class="ocr-pill known">saved</span>'
-        : p.verdict === 'accept'
-          ? '<span class="ocr-pill">new</span>'
-          : '<span class="ocr-pill bad">check</span>';
+        : p.verdict !== 'accept'
+          ? '<span class="ocr-pill bad">check</span>'
+          : p.kind === 'phrase'
+            ? '<span class="ocr-pill phrase">phrase</span>'
+            : '<span class="ocr-pill">new</span>';
+      const title = (p.why || '') + (p.from ? ' — from: ' + p.from : '');
       return '<button type="button" class="' + cls.join(' ') + '" data-ocr-pick="' + i + '"' +
-        ' title="' + ocrEscapeAttr(p.why || '') + '">' +
+        ' title="' + ocrEscapeAttr(title) + '">' +
         '<span class="ga">' + ocrEscapeAttr(p.irish) + '</span>' +
         '<span class="en">' + ocrEscapeAttr(p.english) + '</span>' + pill + '</button>';
     }
@@ -5236,7 +5283,7 @@ function getDueWords(wordsList) {
         if (p.verdict === 'reject') buckets.check.push(i);
         else if (p.known) buckets.known.push(i);
         else if (p.verdict === 'review') buckets.check.push(i);
-        else if (count > 3) buckets.phrases.push(i);
+        else if (p.kind === 'phrase') buckets.phrases.push(i);
         else buckets.words.push(i);
       });
 
