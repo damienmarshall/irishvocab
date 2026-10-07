@@ -2283,6 +2283,10 @@
 
         <div id="ocr-status" class="quickadd-status" role="status" aria-live="polite"></div>
 
+        <!-- Follows the finger while dragging, so the selection is readable even
+             though the finger is covering the text. -->
+        <div id="ocr-readout" class="ocr-readout" hidden></div>
+
         <!-- The tray: everything picked, in the order it was picked. This is the
              list that gets added, so it sits above the source material. -->
         <div id="ocr-tray" class="ocr-tray" hidden>
@@ -4684,6 +4688,9 @@ function getDueWords(wordsList) {
         '.ocr-tray .ocr-card .en::after{content:"  ×";opacity:.5}',
         '.ocr-phrase{display:inline;-webkit-user-select:none;user-select:none}',
         '.ocr-card{touch-action:pan-y}',
+        '.ocr-readout{position:fixed;z-index:9999;transform:translate(-50%,-100%);background:#1f2a24;color:#fff;font-size:.85rem;line-height:1.3;padding:.3rem .55rem;border-radius:8px;max-width:min(80vw,22rem);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.3)}',
+        '.ocr-readout[hidden]{display:none!important}',
+        '.ocr-readout::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);border:5px solid transparent;border-top-color:#1f2a24;border-bottom:0}',
         '.ocr-word.sel{background:#cfe9d8;border-bottom-color:#1f7a3d}',
       ].join('\n');
       document.head.appendChild(s);
@@ -5448,7 +5455,7 @@ function getDueWords(wordsList) {
         start: Number(w.dataset.ocrWidx),
         end: Number(w.dataset.ocrWidx),
       };
-      ocrPaintRange();
+      ocrPaintRange(e.clientX, e.clientY);
       // Stop the browser turning this into a text selection.
       if (e.pointerType === 'mouse') e.preventDefault();
     }
@@ -5464,7 +5471,7 @@ function getDueWords(wordsList) {
       const idx = Number(w.dataset.ocrWidx);
       if (idx === ocrDrag.end) return;
       ocrDrag.end = idx;
-      ocrPaintRange();
+      ocrPaintRange(e.clientX, e.clientY);
     }
 
     function ocrDragEnd() {
@@ -5472,6 +5479,8 @@ function getDueWords(wordsList) {
       const d = ocrDrag;
       ocrDrag = null;
       const p = ocrPairs[d.card];
+
+      ocrReadoutHide();
 
       if (d.start === d.end) {
         // A tap, not a drag. Leave the DOM alone so the click still lands on the
@@ -5490,10 +5499,40 @@ function getDueWords(wordsList) {
     function ocrDragCancel() {
       if (!ocrDrag) return;
       ocrDrag = null;
+      ocrReadoutHide();
       ocrPaint();
     }
 
-    function ocrPaintRange() {
+    function ocrDragText() {
+      if (!ocrDrag) return '';
+      const p = ocrPairs[ocrDrag.card];
+      return p ? ocrPhraseSlice(p.irish, ocrDrag.start, ocrDrag.end) : '';
+    }
+
+    // A pill above the finger showing the current selection.
+    //
+    // Deliberately not a magnifier: a loupe means rendering the phrase into a
+    // canvas that has to match the DOM exactly — fonts, wrapping, letter
+    // spacing, fadas — and any mismatch makes it worse than nothing. This is the
+    // real text, so it cannot drift out of sync with what is highlighted.
+    function ocrReadoutShow(x, y, text) {
+      const el = document.getElementById('ocr-readout');
+      if (!el) return;
+      if (!text) { el.hidden = true; return; }
+      el.textContent = text;
+      el.hidden = false;
+      const half = el.offsetWidth / 2;
+      const maxLeft = Math.max(half + 8, window.innerWidth - half - 8);
+      el.style.left = Math.min(Math.max(x, half + 8), maxLeft) + 'px';
+      el.style.top = Math.max(y - 20, 48) + 'px';
+    }
+
+    function ocrReadoutHide() {
+      const el = document.getElementById('ocr-readout');
+      if (el) el.hidden = true;
+    }
+
+    function ocrPaintRange(x, y) {
       if (!ocrDrag) return;
       const wrap = document.getElementById('ocr-results');
       if (!wrap) return;
@@ -5505,6 +5544,9 @@ function getDueWords(wordsList) {
         const idx = Number(el.dataset.ocrWidx);
         el.classList.toggle('sel', idx >= lo && idx <= hi);
       });
+      if (typeof x === 'number' && typeof y === 'number') {
+        ocrReadoutShow(x, y, ocrDragText());
+      }
     }
 
     // ── The tray: what the user has picked, in the order they picked it ──
