@@ -4579,6 +4579,15 @@ function getDueWords(wordsList) {
       const keyEl = document.getElementById('ocr-key');
       return (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
     }
+
+    // X-Title is OpenRouter attribution. The Worker sets its own upstream, and
+    // sending a header the Worker does not list fails the CORS preflight — which
+    // is exactly what broke the first deploy.
+    function ocrHeaders(token) {
+      const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+      if (!ocrUsingWorker()) headers['X-Title'] = 'Irish Learner';
+      return headers;
+    }
     const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
     const OCR_MAX_EDGE = 1568; // downscale target: image tokens scale with area
 
@@ -5081,6 +5090,16 @@ function getDueWords(wordsList) {
     async function ocrEnsureVocab() {
       if (ocrVocab || ocrVocabTried) return ocrVocab;
       ocrVocabTried = true;
+
+      // The dictionary is optional: it only sharpens the guard. If it is not
+      // deployed next to the page, remember that for a day rather than firing a
+      // 404 on every single load.
+      const MISSING_KEY = 'irish_learner_ocr_vocab_missing';
+      try {
+        const at = Number(localStorage.getItem(MISSING_KEY) || 0);
+        if (at && Date.now() - at < 86400000) return null;
+      } catch (e) { /* private mode */ }
+
       const set = new Set();
       const add = (w) => {
         const t = String(w || '').trim().toLowerCase();
@@ -5095,7 +5114,11 @@ function getDueWords(wordsList) {
           Object.keys(d.ga_en || {}).forEach(add);
           Object.keys(d.en_ga || {}).forEach(add);
         }
-      } catch (e) { /* offline or not deployed */ }
+      } catch (e) {
+        // Not deployed alongside the page. Heuristics still run; just stop
+        // asking for a day.
+        try { localStorage.setItem(MISSING_KEY, String(Date.now())); } catch (e2) { /* ignore */ }
+      }
       try {
         const r = await fetch('./packs.json', { cache: 'force-cache' });
         if (r.ok) {
@@ -5204,11 +5227,7 @@ function getDueWords(wordsList) {
       try {
         const resp = await fetch(ocrEndpoint(), {
           method: 'POST',
-          headers: {
-            Authorization: 'Bearer ' + key,
-            'Content-Type': 'application/json',
-            'X-Title': 'Irish Learner',
-          },
+          headers: ocrHeaders(key),
           body: JSON.stringify({
             model: document.getElementById('ocr-model').value,
             max_tokens: 300,
@@ -5325,11 +5344,7 @@ function getDueWords(wordsList) {
         const started = Date.now();
         const resp = await fetch(ocrEndpoint(), {
           method: 'POST',
-          headers: {
-            Authorization: 'Bearer ' + key,
-            'Content-Type': 'application/json',
-            'X-Title': 'Irish Learner',
-          },
+          headers: ocrHeaders(key),
           body: JSON.stringify({
             model: model,
             max_tokens: 1800,
