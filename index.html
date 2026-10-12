@@ -4554,6 +4554,31 @@ function getDueWords(wordsList) {
     // ───────────────────────────────────────────────
     const OCR_TEST_EMAILS = ['marshall.damien@gmail.com'];
     const OCR_KEY_STORAGE = 'irish_learner_ocr_key';
+
+    // Set this to your deployed Worker to run with no key in the browser at all.
+    // e.g. 'https://irish-learner-ocr.you.workers.dev'
+    // Left empty, the panel falls back to bring-your-own-key.
+    const OCR_WORKER_URL = 'https://irish-learner-ocr.marshall-damien.workers.dev';
+
+    function ocrUsingWorker() {
+      return !!OCR_WORKER_URL;
+    }
+
+    function ocrEndpoint() {
+      return ocrUsingWorker()
+        ? OCR_WORKER_URL.replace(/\/$/, '') + '/ocr'
+        : 'https://openrouter.ai/api/v1/chat/completions';
+    }
+
+    // With the Worker, the credential is the Supabase session token: the Worker
+    // verifies it and holds the OpenRouter key itself.
+    function ocrAuthToken() {
+      if (ocrUsingWorker()) {
+        return (activeSession && activeSession.access_token) || '';
+      }
+      const keyEl = document.getElementById('ocr-key');
+      return (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
+    }
     const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
     const OCR_MAX_EDGE = 1568; // downscale target: image tokens scale with area
 
@@ -4708,8 +4733,20 @@ function getDueWords(wordsList) {
       const stateEl = document.getElementById('ocr-key-state');
       const modelEl = document.getElementById('ocr-model');
 
+      // With the Worker there is no key in the page at all, so the whole key row
+      // is hidden rather than shown and ignored.
+      if (ocrUsingWorker()) {
+        ['ocr-key', 'ocr-key-save', 'ocr-key-clear'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.hidden = true;
+        });
+        const label = document.querySelector('label[for="ocr-key"]');
+        if (label) label.hidden = true;
+        stateEl.textContent = 'Signed in. The key is held on the server, not in this page.';
+      }
+
       const saved = localStorage.getItem(OCR_KEY_STORAGE) || '';
-      if (saved) {
+      if (saved && !ocrUsingWorker()) {
         keyEl.value = saved;
         stateEl.textContent = 'Key saved in this browser. It is never sent to our servers.';
       }
@@ -4803,18 +4840,17 @@ function getDueWords(wordsList) {
     function ocrSyncRunButton() {
       const btn = document.getElementById('ocr-run');
       if (!btn) return;
-      const keyEl = document.getElementById('ocr-key');
-      const hasKey = !!(((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '').trim());
+      const hasAuth = !!ocrAuthToken();
       const fileEl = document.getElementById('ocr-file');
       const hasFile = !!(fileEl && fileEl.files && fileEl.files[0]);
       const modeEl = document.getElementById('ocr-mode');
       const tapped = !!modeEl && modeEl.value === 'tap';
 
-      btn.disabled = ocrBusy || !hasKey || !hasFile || (tapped && ocrTaps.length === 0);
+      btn.disabled = ocrBusy || !hasAuth || !hasFile || (tapped && ocrTaps.length === 0);
       btn.textContent = ocrBusy ? 'Working…' : (tapped ? 'Read tapped words' : 'Extract words');
 
       const hint = document.getElementById('ocr-key-state');
-      if (!hasKey && hint && !localStorage.getItem(OCR_KEY_STORAGE)) {
+      if (!hasAuth && hint && !ocrUsingWorker() && !localStorage.getItem(OCR_KEY_STORAGE)) {
         hint.textContent = 'Paste your OpenRouter key above, then choose an image.';
       }
     }
@@ -5154,9 +5190,11 @@ function getDueWords(wordsList) {
     }
 
     async function ocrLookupWord(selection, phrase) {
-      const keyEl = document.getElementById('ocr-key');
-      const key = (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
-      if (!key) { toast('Add your OpenRouter key first', 'error'); return; }
+      const key = ocrAuthToken();
+      if (!key) {
+        toast(ocrUsingWorker() ? 'Please sign in first' : 'Add your OpenRouter key first', 'error');
+        return;
+      }
 
       // Show it in the tray straight away so the UI stays responsive.
       const entry = { irish: selection, english: '', from: phrase || '', pending: true };
@@ -5164,7 +5202,7 @@ function getDueWords(wordsList) {
       ocrPaint();
 
       try {
-        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const resp = await fetch(ocrEndpoint(), {
           method: 'POST',
           headers: {
             Authorization: 'Bearer ' + key,
@@ -5253,14 +5291,16 @@ function getDueWords(wordsList) {
     }
 
     async function ocrRun() {
-      const keyEl = document.getElementById('ocr-key');
-      const key = (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
+      const key = ocrAuthToken();
       const fileEl = document.getElementById('ocr-file');
       const file = fileEl && fileEl.files && fileEl.files[0];
       const kind = document.getElementById('ocr-kind').value;
       const model = document.getElementById('ocr-model').value;
       const mode = document.getElementById('ocr-mode').value;
-      if (!key) { toast('Paste your OpenRouter key first', 'error'); return; }
+      if (!key) {
+        toast(ocrUsingWorker() ? 'Please sign in first' : 'Paste your OpenRouter key first', 'error');
+        return;
+      }
       if (!file) { toast('Choose an image first', 'error'); return; }
       if (mode === 'tap' && !ocrTaps.length) { toast('Tap the words you want on the image first', 'error'); return; }
       if (ocrBusy) return;
@@ -5283,7 +5323,7 @@ function getDueWords(wordsList) {
         ocrStatus('Sending ' + shot.w + '×' + shot.h + ' to ' + model + '…', 'pending');
 
         const started = Date.now();
-        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const resp = await fetch(ocrEndpoint(), {
           method: 'POST',
           headers: {
             Authorization: 'Bearer ' + key,
