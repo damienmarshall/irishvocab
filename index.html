@@ -4615,14 +4615,12 @@ function getDueWords(wordsList) {
       return headers;
     }
     const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
-    // Downscale target. Image tokens scale with area, and so does the UPLOAD —
-    // which the Worker cannot see, because its clock starts when the body has
-    // already arrived. Measured: a real phone photo at 1568px is ~10x the size
-    // of a screenshot, and roughly 2.4s of a 4.9s round trip was upload on a
-    // phone. 1280 is still far more resolution than the OCR needs; the earlier
-    // accuracy tests passed on a 379px-wide image.
-    const OCR_MAX_EDGE = 1280;
-    const OCR_JPEG_QUALITY = 0.8;
+    // Downscale target. Image tokens scale with area, so this is the main lever
+    // on cost — but NOT on speed: measured upload was 0ms even with the Worker
+    // clock starting before the body arrived. Kept at 1568 for OCR accuracy on
+    // dense handwriting.
+    const OCR_MAX_EDGE = 1568;
+    const OCR_JPEG_QUALITY = 0.85;
 
     let ocrPairs = [];
     let ocrVocab = null;
@@ -5482,6 +5480,9 @@ function getDueWords(wordsList) {
             'auth=' + tAuth,
             'rate=' + resp.headers.get('X-Timing-Rate'),
             'model=' + resp.headers.get('X-Timing-Model'),
+            'modelBody=' + resp.headers.get('X-Timing-UpstreamBody'),
+            'respSize=' + resp.headers.get('X-Size-Upstream') + 'B',
+            'provider=' + resp.headers.get('X-Provider'),
             'worker=' + workerTotal,
             'download=' + (tBody - tHeaders),
             'total=' + elapsed);
