@@ -5439,10 +5439,25 @@ function getDueWords(wordsList) {
           return;
         }
 
+        // The Worker reports where its time went. Without this, "it got slow" is
+        // unattributable: the model, the auth check and the rate-limit write all
+        // look the same from here.
+        const tAuth = resp.headers.get('X-Timing-Auth');
+        const tUpstream = resp.headers.get('X-Timing-Upstream');
+        if (tAuth !== null) {
+          console.log('[OCR] worker timings (ms):',
+            'auth=' + tAuth,
+            'rate=' + resp.headers.get('X-Timing-Rate'),
+            'upstream=' + tUpstream,
+            'workerTotal=' + resp.headers.get('X-Timing-Total'),
+            'clientTotal=' + elapsed);
+        }
+
         const usage = json.usage || {};
         const rejected = ocrPairs.filter((p) => p.verdict === 'reject').length;
         const rate = rejected / ocrPairs.length;
         let line = ocrPairs.length + ' pairs in ' + (elapsed / 1000).toFixed(1) + 's';
+        if (tUpstream !== null) line += ' (model ' + tUpstream + 'ms)';
         if (typeof usage.cost === 'number') {
           line += ' · $' + usage.cost.toFixed(5) + ' (' + (usage.cost * 1000).toFixed(2) + ' per 1,000 images)';
         }
