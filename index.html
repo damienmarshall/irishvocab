@@ -5471,15 +5471,19 @@ function getDueWords(wordsList) {
         const tUpstream = resp.headers.get('X-Timing-Upstream');
         if (tAuth !== null) {
           const workerTotal = Number(resp.headers.get('X-Timing-Total')) || 0;
+          // Everything before the Worker's handler starts: DNS, TLS and any
+          // preflight. If this is big, the problem is the connection, not the
+          // image and not the model.
+          const beforeWorker = tHeaders - started - workerTotal;
           console.log('[OCR] timings (ms):',
             'payload=' + kb + 'KB',
+            'connection=' + beforeWorker,
+            'upload=' + resp.headers.get('X-Timing-Upload'),
             'auth=' + tAuth,
             'rate=' + resp.headers.get('X-Timing-Rate'),
-            'model=' + tUpstream,
+            'model=' + resp.headers.get('X-Timing-Model'),
             'worker=' + workerTotal,
-            'toHeaders=' + (tHeaders - started),
-            'UNACCOUNTED(upload+TLS+preflight)=' + (tHeaders - started - workerTotal),
-            'bodyDownload=' + (tBody - tHeaders),
+            'download=' + (tBody - tHeaders),
             'total=' + elapsed);
         }
 
