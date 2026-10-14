@@ -4615,7 +4615,14 @@ function getDueWords(wordsList) {
       return headers;
     }
     const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
-    const OCR_MAX_EDGE = 1568; // downscale target: image tokens scale with area
+    // Downscale target. Image tokens scale with area, and so does the UPLOAD —
+    // which the Worker cannot see, because its clock starts when the body has
+    // already arrived. Measured: a real phone photo at 1568px is ~10x the size
+    // of a screenshot, and roughly 2.4s of a 4.9s round trip was upload on a
+    // phone. 1280 is still far more resolution than the OCR needs; the earlier
+    // accuracy tests passed on a 379px-wide image.
+    const OCR_MAX_EDGE = 1280;
+    const OCR_JPEG_QUALITY = 0.8;
 
     let ocrPairs = [];
     let ocrVocab = null;
@@ -5115,7 +5122,17 @@ function getDueWords(wordsList) {
             canvas.height = h;
             canvas.getContext('2d').drawImage(img, 0, 0, w, h);
             URL.revokeObjectURL(url);
-            resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.85), w: w, h: h, sourceW: img.width, sourceH: img.height });
+            const dataUrl = canvas.toDataURL('image/jpeg', OCR_JPEG_QUALITY);
+            resolve({
+              dataUrl: dataUrl,
+              w: w,
+              h: h,
+              sourceW: img.width,
+              sourceH: img.height,
+              // The data URL length is the wire size: this is what actually gets
+              // uploaded, and it is paid for on every request.
+              bytes: dataUrl.length,
+            });
           } catch (e) {
             URL.revokeObjectURL(url);
             reject(e);
@@ -5394,7 +5411,9 @@ function getDueWords(wordsList) {
         if (!ocrVocab) ocrStatus('Loading vocabulary…', 'pending');
         await ocrEnsureVocab();
 
-        ocrStatus('Sending ' + shot.w + '×' + shot.h + ' to ' + model + '…', 'pending');
+        const kb = Math.round((shot.bytes || 0) / 1024);
+        console.log('[OCR] uploading', shot.w + 'x' + shot.h, kb + 'KB', 'of', shot.sourceW + 'x' + shot.sourceH);
+        ocrStatus('Sending ' + shot.w + '×' + shot.h + ' (' + kb + 'KB) to ' + model + '…', 'pending');
 
         const started = Date.now();
         const resp = await fetch(ocrEndpoint(), {
@@ -5411,8 +5430,14 @@ function getDueWords(wordsList) {
           }),
         });
 
+        // fetch() resolves when the response HEADERS arrive, which is after the
+        // upload has been sent and the Worker has finished its own part. So
+        // (toHeaders - workerTotal) is the part no one has claimed yet: upload,
+        // TLS and any preflight. That is the number that settles this.
+        const tHeaders = Date.now();
         const json = await resp.json();
-        const elapsed = Date.now() - started;
+        const tBody = Date.now();
+        const elapsed = tBody - started;
 
         if (!resp.ok) {
           ocrStatus('Failed: ' + ((json && json.error && json.error.message) || ('HTTP ' + resp.status)), 'error');
@@ -5445,12 +5470,17 @@ function getDueWords(wordsList) {
         const tAuth = resp.headers.get('X-Timing-Auth');
         const tUpstream = resp.headers.get('X-Timing-Upstream');
         if (tAuth !== null) {
-          console.log('[OCR] worker timings (ms):',
+          const workerTotal = Number(resp.headers.get('X-Timing-Total')) || 0;
+          console.log('[OCR] timings (ms):',
+            'payload=' + kb + 'KB',
             'auth=' + tAuth,
             'rate=' + resp.headers.get('X-Timing-Rate'),
-            'upstream=' + tUpstream,
-            'workerTotal=' + resp.headers.get('X-Timing-Total'),
-            'clientTotal=' + elapsed);
+            'model=' + tUpstream,
+            'worker=' + workerTotal,
+            'toHeaders=' + (tHeaders - started),
+            'UNACCOUNTED(upload+TLS+preflight)=' + (tHeaders - started - workerTotal),
+            'bodyDownload=' + (tBody - tHeaders),
+            'total=' + elapsed);
         }
 
         const usage = json.usage || {};
