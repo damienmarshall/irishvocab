@@ -4670,12 +4670,10 @@ function getDueWords(wordsList) {
       // Two inputs: one opens the camera, one opens the file picker. Both feed
       // the same handler.
       const onPick = async () => {
-        ocrResetTaps();
         document.getElementById('ocr-results').innerHTML = '';
         document.getElementById('ocr-actions').hidden = true;
         ocrStatus('');
-        // Show the image straight away: in tap mode the user needs to see it
-        // before there is anything to extract.
+        // Show the image straight away, so the user can see what was picked.
         await ocrPreviewFile();
         ocrSyncRunButton();
       };
