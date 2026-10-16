@@ -4642,29 +4642,31 @@ function getDueWords(wordsList) {
       'parents parent permission holiday time life room able write asked told let put take saw ' +
       'small big good new old own same very much many little great made when').split(/\s+/));
 
+    // The model is asked to read out everything it can see, not to decide what
+    // is worth learning. It used to be told to skip sentences and pick a "key
+    // word", which meant a slide of Irish prose produced nothing at all.
     const OCR_PROMPTS = {
       photo: [
         "You are an OCR and translation tool for an Irish learner's app.",
-        'The image is a printed page of Irish vocabulary: words captioned under pictures, or a word list.',
-        'For every Irish word or phrase, return the Irish exactly as printed and its English translation.',
+        'The image is a printed page of Irish: a word list, captions, or running text.',
+        'Return every Irish word, phrase or sentence you can read, exactly as printed, with its English translation.',
         'Preserve fadas (á é í ó ú) EXACTLY: never add one, never remove one, never substitute one.',
-        'Copy the spelling on the page; do not correct it. Skip titles and publisher names.',
+        'Copy the spelling on the page; do not correct it.',
       ].join(' '),
       notes: [
         'You are helping an Irish learner digitise handwritten school notes.',
         'The Irish is written in pen; the English translations are written in a different colour',
-        'beside the Irish words they translate. Return each Irish word or phrase with the English gloss',
+        'beside the Irish words they translate. Return each Irish word, phrase or sentence with the English gloss',
         'actually written on the page. Preserve fadas (á é í ó ú) EXACTLY. Copy the handwriting,',
         'including any spelling the writer got wrong. Never put English text in the irish field.',
-        'Skip ordinary sentences: vocabulary only.',
       ].join(' '),
       auto: [
         "You are an OCR and translation tool for an Irish learner's app.",
-        'The image is either a printed page of Irish vocabulary, or handwritten Irish notes with English',
-        'translations written beside the Irish words they translate. Return each Irish word or phrase',
-        'with its English equivalent. If the page is handwritten, use the English gloss actually written',
+        'The image is either a printed page of Irish, or handwritten Irish notes with English',
+        'translations written beside the Irish words they translate. Return every Irish word, phrase',
+        'or sentence you can read, with its English equivalent. If the page is handwritten, use the English gloss actually written',
         'on the page rather than your own translation. Preserve fadas (á é í ó ú) EXACTLY: never add,',
-        'remove or substitute one. Copy the spelling as written. Skip titles and ordinary sentences.',
+        'remove or substitute one. Copy the spelling as written.',
       ].join(' '),
     };
 
