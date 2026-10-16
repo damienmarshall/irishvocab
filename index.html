@@ -2235,17 +2235,6 @@
             saved until you press Add — check every line first.</p>
         </div>
 
-        <label class="ocr-label" for="ocr-key">OpenRouter API key</label>
-        <div class="ocr-row">
-          <input id="ocr-key" type="password" class="ocr-input" placeholder="sk-or-v1-…"
-            autocomplete="off" spellcheck="false">
-          <button type="button" class="btn btn-outline btn-sm" id="ocr-key-save">Save</button>
-          <button type="button" class="btn btn-outline btn-sm" id="ocr-key-clear">Forget</button>
-        </div>
-        <p class="ocr-hint" id="ocr-key-state">This key is stored in this browser only. It is never
-          sent to our servers and never saved with your account. Treat it like a password — this page
-          is public, so only paste a key you are willing to have on this device.</p>
-
         <div class="ocr-row">
           <label class="ocr-label" for="ocr-model">Model</label>
           <select id="ocr-model" class="ocr-input">
@@ -4577,40 +4566,26 @@ function getDueWords(wordsList) {
     // convenience gate, not a security boundary: anyone can read this source.
     // ───────────────────────────────────────────────
     const OCR_TEST_EMAILS = ['marshall.damien@gmail.com'];
-    const OCR_KEY_STORAGE = 'irish_learner_ocr_key';
 
-    // Set this to your deployed Worker to run with no key in the browser at all.
-    // e.g. 'https://irish-learner-ocr.you.workers.dev'
-    // Left empty, the panel falls back to bring-your-own-key.
+    // All OCR goes through the Worker: it holds the OpenRouter key AND the
+    // prompts, so neither ships in this page.
     const OCR_WORKER_URL = 'https://irish-learner-ocr.marshall-damien.workers.dev';
 
-    function ocrUsingWorker() {
-      return !!OCR_WORKER_URL;
-    }
-
     function ocrEndpoint() {
-      return ocrUsingWorker()
-        ? OCR_WORKER_URL.replace(/\/$/, '') + '/ocr'
-        : 'https://openrouter.ai/api/v1/chat/completions';
+      return OCR_WORKER_URL.replace(/\/$/, '') + '/ocr';
     }
 
-    // With the Worker, the credential is the Supabase session token: the Worker
-    // verifies it and holds the OpenRouter key itself.
+    // The credential is the Supabase session token: the Worker verifies it and
+    // holds the OpenRouter key itself.
     function ocrAuthToken() {
-      if (ocrUsingWorker()) {
-        return (activeSession && activeSession.access_token) || '';
-      }
-      const keyEl = document.getElementById('ocr-key');
-      return (((keyEl && keyEl.value) || localStorage.getItem(OCR_KEY_STORAGE) || '')).trim();
+      return (activeSession && activeSession.access_token) || '';
     }
 
-    // X-Title is OpenRouter attribution. The Worker sets its own upstream, and
-    // sending a header the Worker does not list fails the CORS preflight — which
+    // The Worker sets its own attribution header upstream. Sending one from here
+    // would fail the CORS preflight, because the Worker does not list it — which
     // is exactly what broke the first deploy.
     function ocrHeaders(token) {
-      const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
-      if (!ocrUsingWorker()) headers['X-Title'] = 'Irish Learner';
-      return headers;
+      return { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
     }
     const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
     // Downscale target. Image tokens scale with area, so this is the main lever
@@ -4642,39 +4617,8 @@ function getDueWords(wordsList) {
       'parents parent permission holiday time life room able write asked told let put take saw ' +
       'small big good new old own same very much many little great made when').split(/\s+/));
 
-    // The model is asked to read out everything it can see, not to decide what
-    // is worth learning. It used to be told to skip sentences and pick a "key
-    // word", which meant a slide of Irish prose produced nothing at all.
-    const OCR_PROMPTS = {
-      photo: [
-        "You are an OCR and translation tool for an Irish learner's app.",
-        'The image is a printed page of Irish: a word list, captions, or running text.',
-        'Return every Irish word, phrase or sentence you can read, exactly as printed, with its English translation.',
-        'Preserve fadas (á é í ó ú) EXACTLY: never add one, never remove one, never substitute one.',
-        'Copy the spelling on the page; do not correct it.',
-      ].join(' '),
-      notes: [
-        'You are helping an Irish learner digitise handwritten school notes.',
-        'The Irish is written in pen; the English translations are written in a different colour',
-        'beside the Irish words they translate. Return each Irish word, phrase or sentence with the English gloss',
-        'actually written on the page. Preserve fadas (á é í ó ú) EXACTLY. Copy the handwriting,',
-        'including any spelling the writer got wrong. Never put English text in the irish field.',
-      ].join(' '),
-      auto: [
-        "You are an OCR and translation tool for an Irish learner's app.",
-        'The image is either a printed page of Irish, or handwritten Irish notes with English',
-        'translations written beside the Irish words they translate. Return every Irish word, phrase',
-        'or sentence you can read, with its English equivalent. If the page is handwritten, use the English gloss actually written',
-        'on the page rather than your own translation. Preserve fadas (á é í ó ú) EXACTLY: never add,',
-        'remove or substitute one. Copy the spelling as written.',
-      ].join(' '),
-    };
-
-    // Just the translations, exactly as they appear. The model is not asked to
-    // guess a "key word" or a dictionary form — that was clever but wrong often
-    // enough to be worse than useless, and the user picks what to keep anyway.
-    const OCR_JSON_RULE =
-      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
+    // The prompts live in the Worker (worker/index.js), not here, so they are
+    // not public and can be tuned without shipping a new client.
 
     function ocrIsAllowed(session) {
       const email = ((session && session.email) || '').trim().toLowerCase();
@@ -4763,49 +4707,9 @@ function getDueWords(wordsList) {
       const tabBtn = document.getElementById('tab-btn-snap');
       if (tabBtn) tabBtn.hidden = false;
 
-      const keyEl = document.getElementById('ocr-key');
-      const stateEl = document.getElementById('ocr-key-state');
       const modelEl = document.getElementById('ocr-model');
-
-      // With the Worker there is no key in the page at all, so the whole key row
-      // is hidden rather than shown and ignored.
-      if (ocrUsingWorker()) {
-        ['ocr-key', 'ocr-key-save', 'ocr-key-clear'].forEach((id) => {
-          const el = document.getElementById(id);
-          if (el) el.hidden = true;
-        });
-        const label = document.querySelector('label[for="ocr-key"]');
-        if (label) label.hidden = true;
-        stateEl.textContent = 'Signed in. The key is held on the server, not in this page.';
-      }
-
-      const saved = localStorage.getItem(OCR_KEY_STORAGE) || '';
-      if (saved && !ocrUsingWorker()) {
-        keyEl.value = saved;
-        stateEl.textContent = 'Key saved in this browser. It is never sent to our servers.';
-      }
       const savedModel = localStorage.getItem(OCR_MODEL_STORAGE);
       if (savedModel) modelEl.value = savedModel;
-
-      document.getElementById('ocr-key-save').addEventListener('click', () => {
-        const v = keyEl.value.trim();
-        if (!/^sk-or-/.test(v)) { toast('That does not look like an OpenRouter key (sk-or-…)', 'error'); return; }
-        localStorage.setItem(OCR_KEY_STORAGE, v);
-        stateEl.textContent = 'Key saved in this browser. It is never sent to our servers.';
-        toast('Key saved', 'success');
-        ocrSyncRunButton();
-      });
-
-      document.getElementById('ocr-key-clear').addEventListener('click', () => {
-        localStorage.removeItem(OCR_KEY_STORAGE);
-        keyEl.value = '';
-        stateEl.textContent = 'Key cleared.';
-        ocrSyncRunButton();
-      });
-
-      // The key field is the source of truth, so pasting a key and going straight
-      // to Extract works. "Save" only decides whether it is remembered next visit.
-      keyEl.addEventListener('input', ocrSyncRunButton);
 
       // Two inputs: one opens the camera, one opens the file picker. Both feed
       // the same handler.
@@ -4901,10 +4805,6 @@ function getDueWords(wordsList) {
       btn.disabled = ocrBusy || !hasAuth || !hasFile || (tapped && ocrTaps.length === 0);
       btn.textContent = ocrBusy ? 'Working…' : (tapped ? 'Read tapped words' : 'Extract words');
 
-      const hint = document.getElementById('ocr-key-state');
-      if (!hasAuth && hint && !ocrUsingWorker() && !localStorage.getItem(OCR_KEY_STORAGE)) {
-        hint.textContent = 'Paste your OpenRouter key above, then choose an image.';
-      }
     }
 
     // Load and downscale the chosen file without calling the API. Cached so that
@@ -5043,39 +4943,6 @@ function getDueWords(wordsList) {
       } catch (err) {
         return '';
       }
-    }
-
-    function ocrTapCropPrompt() {
-      return [
-        "You are an OCR and translation tool for an Irish learner's app.",
-        'Each image is a narrow horizontal crop from a page of Irish text. The middle of each',
-        'crop is the exact spot the learner tapped.',
-        'For EACH image, in the order given, return EXACTLY ONE entry: the single Irish word or',
-        'short phrase closest to the CENTRE of the crop, exactly as written, with its English',
-        'translation.',
-        'Return one entry per image. Never return every word you can see in a crop.',
-        "The centre of the crop is the tapped point, so prefer the word nearest it over anything",
-        'at the edges.',
-        'Preserve fadas (á é í ó ú) EXACTLY: never add, remove or substitute one.',
-        'Copy the spelling as written, even if the writer got it wrong.',
-        "If a crop's centre is not on any Irish text, omit that entry.",
-      ].join('\n') + OCR_JSON_RULE;
-    }
-
-    // Tap mode sends one crop per tap, all in a single request.
-    function ocrBuildContent(mode, kind, shot) {
-      if (mode !== 'tap') {
-        return [
-          { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
-          { type: 'image_url', image_url: { url: shot.dataUrl } },
-        ];
-      }
-      const content = [{ type: 'text', text: ocrTapCropPrompt() }];
-      ocrTaps.forEach((t, i) => {
-        content.push({ type: 'text', text: 'Image ' + (i + 1) + ':' });
-        content.push({ type: 'image_url', image_url: { url: t.crop || shot.dataUrl } });
-      });
-      return content;
     }
 
     function ocrStatus(msg, kind) {
@@ -5236,38 +5103,12 @@ function getDueWords(wordsList) {
     //
     // The clicked word becomes a card straight away (marked pending) so the UI
     // stays responsive, then fills in when the answer arrives. Measured cost:
-    // about $0.00001 per lookup, under a second.
-    function ocrLookupPrompt(selection, phrase) {
-      // A single word wants its dictionary form; a dragged span wants the whole
-      // phrase kept intact. Asking for "the same word in dictionary form" for a
-      // span made the model collapse it to one word — measured: dragging
-      // "Pádraigín a seomra féin" came back as just "seomra / room".
-      const isPhrase = String(selection).trim().split(/\s+/).filter(Boolean).length > 1;
-      return [
-        "You are a dictionary for an Irish learner's app.",
-        phrase
-          ? 'The learner selected "' + selection + '" inside this Irish sentence:\n"' +
-            phrase + '"\n\nUse the sentence as context to work out what it means.'
-          : '',
-        'Return:',
-        '  - "surface": the selection exactly as given',
-        isPhrase
-          ? '  - "irish": the whole selection exactly as given — do NOT reduce a phrase to one word'
-          : '  - "irish": the same word in dictionary form (nominative singular for a noun,' +
-            ' imperative for a verb)',
-        isPhrase
-          ? '  - "english": the English for the whole phrase'
-          : '  - "english": the English for that dictionary form',
-        'Preserve fadas (á é í ó ú) EXACTLY. If the selection is not Irish, omit it.',
-        'Return ONLY valid JSON, no markdown fences, no commentary: ' +
-          '{"words":[{"surface":"...","irish":"...","english":"..."}]}',
-      ].filter(Boolean).join('\n');
-    }
-
+    // about $0.00001 per lookup, under a second. The prompt itself lives in the
+    // Worker.
     async function ocrLookupWord(selection, phrase) {
       const key = ocrAuthToken();
       if (!key) {
-        toast(ocrUsingWorker() ? 'Please sign in first' : 'Add your OpenRouter key first', 'error');
+        toast('Please sign in first', 'error');
         return;
       }
 
@@ -5283,10 +5124,9 @@ function getDueWords(wordsList) {
           body: JSON.stringify({
             model: document.getElementById('ocr-model').value,
             max_tokens: 300,
-            temperature: 0,
-            provider: { data_collection: 'deny', zdr: true, allow_fallbacks: true },
-            usage: { include: true },
-            messages: [{ role: 'user', content: ocrLookupPrompt(selection, phrase) }],
+            mode: 'lookup',
+            selection: selection,
+            phrase: phrase || '',
           }),
         });
         const json = await resp.json();
@@ -5352,7 +5192,7 @@ function getDueWords(wordsList) {
       const model = document.getElementById('ocr-model').value;
       const mode = document.getElementById('ocr-mode').value;
       if (!key) {
-        toast(ocrUsingWorker() ? 'Please sign in first' : 'Paste your OpenRouter key first', 'error');
+        toast('Please sign in first', 'error');
         return;
       }
       if (!file) { toast('Choose an image first', 'error'); return; }
@@ -5385,11 +5225,10 @@ function getDueWords(wordsList) {
           body: JSON.stringify({
             model: model,
             max_tokens: 1800,
-            temperature: 0,
-            // Only route to providers that do not retain or train on the input.
-            provider: { data_collection: 'deny', zdr: true, allow_fallbacks: true },
-            usage: { include: true },
-            messages: [{ role: 'user', content: ocrBuildContent(mode, kind, shot) }],
+            kind: kind,
+            mode: mode,
+            image: shot.dataUrl,
+            taps: ocrTaps.map((t) => ({ crop: t.crop })),
           }),
         });
 
@@ -5792,10 +5631,10 @@ function getDueWords(wordsList) {
         : '';
 
       let html = '';
-      html += section('Words', buckets.words, 'tap one to add it');
-      html += section('Phrases', buckets.phrases, 'tap any word in a phrase to make it a card');
+      html += section('Identified Irish', buckets.words, 'tap one to add it');
+      html += section('Identified Irish phrases', buckets.phrases, 'tap any word in a phrase to make it a card');
       if (!skipKnown) html += section('Already in your deck', buckets.known);
-      html += section('Worth a look', buckets.check, 'unclear or not recognised as Irish');
+      html += section('Needs review — unclear if Irish', buckets.check, 'the model was not sure this is Irish');
 
       const hidden = skipKnown && buckets.known.length
         ? '<p class="ocr-hint">' + buckets.known.length + ' word' +
