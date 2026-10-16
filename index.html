@@ -2271,7 +2271,10 @@
         <div id="ocr-tray" class="ocr-tray" hidden>
           <div class="ocr-tray-head">
             <strong id="ocr-tray-count">Nothing picked yet</strong>
-            <button type="button" class="btn btn-outline btn-sm" id="ocr-tray-clear">Clear</button>
+            <span class="ocr-tray-actions">
+              <button type="button" class="btn btn-outline btn-sm" id="ocr-tray-clear">Clear selection</button>
+              <button type="button" class="btn btn-primary btn-sm" id="ocr-add">Add flashcards</button>
+            </span>
           </div>
           <div id="ocr-tray-list" class="ocr-board"></div>
         </div>
@@ -2279,15 +2282,11 @@
         <div class="ocr-row" id="ocr-toolbar" hidden>
           <label class="ocr-check"><input type="checkbox" id="ocr-hide-known" checked>
             Hide words I already have</label>
-          <button type="button" class="btn btn-outline btn-sm" id="ocr-select-none">Clear</button>
         </div>
+        <p class="ocr-hint" id="ocr-toolbar-hint" hidden>Tap to add flashcards — tap individual words,
+          or drag to select several words for a phrase.</p>
 
         <div id="ocr-results"></div>
-
-        <div class="quickadd-footer" id="ocr-actions" hidden>
-          <span id="ocr-summary" class="quickadd-status"></span>
-          <button type="button" class="btn btn-primary btn-sm" id="ocr-add">Add selected</button>
-        </div>
       </div>
     </div>
 
@@ -4632,8 +4631,6 @@ function getDueWords(wordsList) {
         '.ocr-card.sel .ga::before{content:"✓ ";font-weight:700;color:#1f7a3d}',
         '.ocr-pill{position:absolute;top:-.45rem;right:-.3rem;font-size:.6rem;border-radius:999px;padding:.05rem .3rem;background:#e6f4ea;color:#1f7a3d;border:1px solid rgba(31,122,61,.35)}',
         '.ocr-pill.known{background:#eee;color:#555;border-color:rgba(0,0,0,.15)}',
-        '.ocr-pill.bad{background:#f7d7d7;color:#8a1c1c;border-color:rgba(138,28,28,.3)}',
-        '.ocr-pill.phrase{background:#e8eefc;color:#2b4a8a;border-color:rgba(43,74,138,.3)}',
         '.ocr-word{cursor:pointer;border-bottom:1px dotted rgba(0,0,0,.35)}',
         '.ocr-word:hover{background:#fff3c4;border-bottom-color:#1f7a3d}',
         '.ocr-card.pending{opacity:.6}',
@@ -4641,7 +4638,10 @@ function getDueWords(wordsList) {
         '.ocr-tray[hidden]{display:none!important}',
         '.ocr-tray-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem}',
         '.ocr-tray-head strong{font-size:.82rem}',
+        '.ocr-tray-actions{display:inline-flex;gap:.4rem}',
         '.ocr-tray .ocr-card{background:#fff}',
+        '.ocr-x{position:absolute;top:-.4rem;right:-.4rem;width:16px;height:16px;padding:0;border-radius:50%;border:1px solid rgba(0,0,0,.2);background:#fff;color:#555;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}',
+        '.ocr-x:hover{background:#f7d7d7;color:#8a1c1c}',
         '.ocr-tray .ocr-card .ga::before{content:"✓ ";font-weight:700;color:#1f7a3d}',
         '.ocr-tray .ocr-card .en::after{content:"  ×";opacity:.5}',
         '.ocr-phrase{display:inline;-webkit-user-select:none;user-select:none}',
@@ -4671,7 +4671,6 @@ function getDueWords(wordsList) {
       // the same handler.
       const onPick = async () => {
         document.getElementById('ocr-results').innerHTML = '';
-        document.getElementById('ocr-actions').hidden = true;
         ocrStatus('');
         // Show the image straight away, so the user can see what was picked.
         await ocrPreviewFile();
@@ -4687,10 +4686,6 @@ function getDueWords(wordsList) {
       });
 
       document.getElementById('ocr-hide-known').addEventListener('change', ocrPaint);
-      document.getElementById('ocr-select-none').addEventListener('click', () => {
-        ocrTrayClear();
-        ocrPaint();
-      });
       document.getElementById('ocr-tray-clear').addEventListener('click', () => {
         ocrTrayClear();
         ocrPaint();
@@ -4997,7 +4992,6 @@ function getDueWords(wordsList) {
       ocrSyncRunButton();
       ocrStatus('Preparing image…', 'pending');
       document.getElementById('ocr-results').innerHTML = '';
-      document.getElementById('ocr-actions').hidden = true;
 
       try {
         const shotKey = file.name + ':' + file.size + ':' + file.lastModified;
@@ -5112,8 +5106,8 @@ function getDueWords(wordsList) {
     function ocrRender(scaleNote, gateFailed) {
       ocrNote = scaleNote || '';
       ocrGateFailed = !!gateFailed;
-      document.getElementById('ocr-actions').hidden = false;
       document.getElementById('ocr-toolbar').hidden = false;
+      document.getElementById('ocr-toolbar-hint').hidden = false;
       ocrPaint();
     }
 
@@ -5326,6 +5320,7 @@ function getDueWords(wordsList) {
       list.innerHTML = ocrTray.map((t, i) =>
         '<div class="ocr-card sel' + (t.pending ? ' pending' : '') + '" data-ocr-tray="' + i + '"' +
         ' role="button" tabindex="0" title="' + ocrEscapeAttr(t.from ? 'from: ' + t.from : '') + '">' +
+        '<button type="button" class="ocr-x" data-ocr-traydel="' + i + '" aria-label="Remove">×</button>' +
         '<span class="ga">' + ocrEscapeAttr(t.irish) + '</span>' +
         '<span class="en">' + (t.pending ? 'looking up…' : ocrEscapeAttr(t.english)) + '</span></div>'
       ).join('');
@@ -5333,6 +5328,14 @@ function getDueWords(wordsList) {
       list.querySelectorAll('[data-ocr-tray]').forEach((el) => {
         el.addEventListener('click', () => {
           const i = Number(el.dataset.ocrTray);
+          if (ocrTray[i]) ocrTrayRemove(ocrTray[i].irish);
+          ocrPaint();
+        });
+      });
+      list.querySelectorAll('[data-ocr-traydel]').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const i = Number(el.dataset.ocrTraydel);
           if (ocrTray[i]) ocrTrayRemove(ocrTray[i].irish);
           ocrPaint();
         });
@@ -5347,15 +5350,13 @@ function getDueWords(wordsList) {
       if (p.verdict === 'reject') cls.push('bad');
       if (p.pending) cls.push('pending');
 
+      // Only "saved" and "pending" are worth a badge; the phrase/check pills
+      // were noise.
       const pill = p.pending
         ? '<span class="ocr-pill">…</span>'
         : p.known
           ? '<span class="ocr-pill known">saved</span>'
-          : p.verdict !== 'accept'
-            ? '<span class="ocr-pill bad">check</span>'
-            : p.kind === 'phrase'
-              ? '<span class="ocr-pill phrase">phrase</span>'
-              : '<span class="ocr-pill">new</span>';
+          : '<span class="ocr-pill">new</span>';
 
       // In a phrase every word is clickable: tapping one looks it up and turns it
       // into its own card. The phrase is sent as context, because a word lifted
@@ -5429,10 +5430,6 @@ function getDueWords(wordsList) {
     }
 
     function ocrUpdateSummary() {
-      const el = document.getElementById('ocr-summary');
-      if (el) {
-        el.textContent = ocrTray.length ? ocrTray.length + ' picked' : 'Nothing picked yet';
-      }
       return ocrTray;
     }
 
