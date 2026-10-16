@@ -5783,8 +5783,8 @@ function getDueWords(wordsList) {
         : '';
 
       let html = '';
-      html += section('Suggested words', buckets.words, 'tap one to add it');
-      html += section('Full phrases', buckets.phrases, 'tap any word in a phrase to make it a card');
+      html += section('Words', buckets.words, 'tap one to add it');
+      html += section('Phrases', buckets.phrases, 'tap any word in a phrase to make it a card');
       if (!skipKnown) html += section('Already in your deck', buckets.known);
       html += section('Worth a look', buckets.check, 'unclear or not recognised as Irish');
 
