@@ -2282,8 +2282,6 @@
         <input id="ocr-file-upload" type="file" accept="image/*" hidden>
 
         <div class="ocr-row">
-          <label class="ocr-check"><input type="checkbox" id="ocr-keywords" checked>
-            Suggest key words</label>
           <button type="button" class="btn btn-primary btn-sm" id="ocr-run" disabled>Extract words</button>
         </div>
 
@@ -4670,22 +4668,11 @@ function getDueWords(wordsList) {
       ].join(' '),
     };
 
+    // Just the translations, exactly as they appear. The model is not asked to
+    // guess a "key word" or a dictionary form — that was clever but wrong often
+    // enough to be worse than useless, and the user picks what to keep anyway.
     const OCR_JSON_RULE =
-      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"...","headword":"...","headword_english":"..."}]}';
-
-    // The phrase translates accurately because it has context; the headword is
-    // what makes a good flashcard. Ask for both, linked.
-    //
-    // Measured on a handwritten page: "Ba mhaith le Pádraigín a seomra féin a
-    // bheith aici" -> "Pádraigín wanted her own room" with headword
-    // "seomra" -> "room". On a printed word book every headword came back
-    // identical to the word, so single-word pages are unaffected.
-    const OCR_HEADWORD_RULE = ' For each item also give "headword": the single most useful word to' +
-      ' learn from it — the key noun, verb or adjective — in its dictionary form (nominative' +
-      ' singular for a noun, imperative for a verb), and "headword_english": the English for that' +
-      ' headword. If the item is already a single word, headword is the same as irish. Keep the' +
-      ' phrase intact in "irish": the phrase is what translates accurately, the headword is what' +
-      ' makes a good flashcard.';
+      ' Return ONLY valid JSON, no markdown fences, no commentary: {"pairs":[{"irish":"...","english":"..."}]}';
 
     function ocrIsAllowed(session) {
       const email = ((session && session.email) || '').trim().toLowerCase();
@@ -4849,7 +4836,7 @@ function getDueWords(wordsList) {
       document.getElementById('ocr-hide-known').addEventListener('change', ocrPaint);
       document.getElementById('ocr-select-new').addEventListener('click', () => {
         ocrPairs.forEach((p) => {
-          if (p.verdict !== 'reject' && !p.known && p.kind === 'word') {
+          if (p.verdict !== 'reject' && !p.known) {
             ocrTrayAdd(p.irish, p.english, p.from);
           }
         });
@@ -4899,11 +4886,6 @@ function getDueWords(wordsList) {
       const camera = document.getElementById('ocr-file');
       if (camera && camera.files && camera.files[0]) return camera.files[0];
       return null;
-    }
-
-    function ocrKeywordsOn() {
-      const el = document.getElementById('ocr-keywords');
-      return !el || el.checked;
     }
 
     function ocrSyncRunButton() {
@@ -5081,11 +5063,8 @@ function getDueWords(wordsList) {
     // Tap mode sends one crop per tap, all in a single request.
     function ocrBuildContent(mode, kind, shot) {
       if (mode !== 'tap') {
-        // "Suggest key words" decides whether the model also picks the one word
-        // worth learning out of each item. Off, you just get the translations.
-        const headwords = ocrKeywordsOn() ? OCR_HEADWORD_RULE : '';
         return [
-          { type: 'text', text: OCR_PROMPTS[kind] + headwords + OCR_JSON_RULE },
+          { type: 'text', text: OCR_PROMPTS[kind] + OCR_JSON_RULE },
           { type: 'image_url', image_url: { url: shot.dataUrl } },
         ];
       }
@@ -5336,45 +5315,28 @@ function getDueWords(wordsList) {
       ocrPaint();
     }
 
-    // Turn the model's phrase-level output into the list of things the user can
-    // actually save.
-    //
-    // Each item becomes a "word" card (the headword — a good flashcard) and, when
-    // the headword differs from the phrase, a "phrase" card as well (the context,
-    // which is what translated accurately). Words are ticked by default; phrases
-    // are there if wanted. Measured: on a printed word book every headword came
-    // back identical to the word, so single-word pages produce one card each.
+    // Turn the model's output into the list of things the user can save. One
+    // card per item, exactly as it appeared — no headword guessing. A multi-word
+    // item is still rendered as a phrase so its words stay individually
+    // clickable.
     function ocrBuildCards(pairs) {
       const cards = [];
       const seen = new Set();
 
-      const push = (kind, ga, en, from) => {
-        const irish = String(ga || '').trim();
-        const english = String(en || '').trim();
+      pairs.forEach((p) => {
+        const irish = String(p.irish || '').trim();
+        const english = String(p.english || '').trim();
         const k = ocrKey(irish);
         if (!k || seen.has(k)) return;
         seen.add(k);
 
-        const card = { kind: kind, irish: irish, english: english, from: from || '', keep: true };
+        const kind = irish.split(/\s+/).filter(Boolean).length > 1 ? 'phrase' : 'word';
+        const card = { kind: kind, irish: irish, english: english, from: '', keep: true };
         const v = ocrVerdict(card);
         card.verdict = v.v;
         card.why = v.why;
         card.known = ocrIsInDeck(irish);
         cards.push(card);
-      };
-
-      pairs.forEach((p) => {
-        const irish = String(p.irish || '').trim();
-        const english = String(p.english || '').trim();
-        const head = String(p.headword || '').trim();
-        const headEn = String(p.headword_english || '').trim();
-
-        if (head && ocrKey(head) !== ocrKey(irish)) {
-          push('word', head, headEn || english, irish);
-          push('phrase', irish, english, '');
-        } else {
-          push('word', irish, english, '');
-        }
       });
 
       return cards;
@@ -5453,8 +5415,7 @@ function getDueWords(wordsList) {
           return;
         }
 
-        // Dedupe happens inside ocrBuildCards, which also splits each item into
-        // a flashcard word and (when they differ) the phrase it came from.
+        // Dedupe happens inside ocrBuildCards.
         ocrPairs = ocrBuildCards(parsed.pairs || []);
 
         if (!ocrPairs.length) {
@@ -5482,7 +5443,8 @@ function getDueWords(wordsList) {
             'model=' + resp.headers.get('X-Timing-Model'),
             'modelBody=' + resp.headers.get('X-Timing-UpstreamBody'),
             'respSize=' + resp.headers.get('X-Size-Upstream') + 'B',
-            'provider=' + resp.headers.get('X-Provider'),
+            // OpenRouter names the provider it routed to in the response body.
+            'provider=' + (json.provider || '?'),
             'worker=' + workerTotal,
             'download=' + (tBody - tHeaders),
             'total=' + elapsed);
