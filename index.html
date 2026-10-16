@@ -5324,8 +5324,9 @@ function getDueWords(wordsList) {
       const seen = new Set();
 
       pairs.forEach((p) => {
-        const irish = String(p.irish || '').trim();
-        const english = String(p.english || '').trim();
+        if (!p || typeof p !== 'object') return;
+        const irish = String(p.irish || p.ga || p.irish_word || '').trim();
+        const english = String(p.english || p.en || p.translation || '').trim();
         const k = ocrKey(irish);
         if (!k || seen.has(k)) return;
         seen.add(k);
@@ -5415,10 +5416,16 @@ function getDueWords(wordsList) {
           return;
         }
 
+        // The model usually returns {"pairs":[...]}, but a bare array or a
+        // different key happens often enough to be worth accepting.
+        const rawPairs = Array.isArray(parsed) ? parsed
+          : (parsed && (parsed.pairs || parsed.words || parsed.items)) || [];
+
         // Dedupe happens inside ocrBuildCards.
-        ocrPairs = ocrBuildCards(parsed.pairs || []);
+        ocrPairs = ocrBuildCards(rawPairs);
 
         if (!ocrPairs.length) {
+          console.warn('OCR raw output:', text);
           ocrStatus('No Irish words found in that image.', 'error');
           return;
         }
