@@ -2235,26 +2235,6 @@
             saved until you press Add — check every line first.</p>
         </div>
 
-        <div class="ocr-row">
-          <label class="ocr-label" for="ocr-model">Model</label>
-          <select id="ocr-model" class="ocr-input">
-            <option value="google/gemini-2.5-flash-lite">gemini-2.5-flash-lite — cheapest, good for printed pages</option>
-            <option value="google/gemini-2.5-flash">gemini-2.5-flash — best, use for handwriting</option>
-            <option value="google/gemma-3-12b-it">gemma-3-12b-it — cheaper, weaker on Irish</option>
-          </select>
-          <label class="ocr-label" for="ocr-kind">Page type</label>
-          <select id="ocr-kind" class="ocr-input">
-            <option value="auto">Auto</option>
-            <option value="photo">Printed</option>
-            <option value="notes">Handwritten notes</option>
-          </select>
-          <label class="ocr-label" for="ocr-mode">What to read</label>
-          <select id="ocr-mode" class="ocr-input">
-            <option value="all">Everything on the page</option>
-            <option value="tap">Only the words I tap</option>
-          </select>
-        </div>
-
         <!-- Two ways in, each going straight where it says. `capture` sends a
              phone straight to the camera; without it the browser opens the file
              picker. Two inputs rather than one, because flipping the attribute
@@ -2277,15 +2257,7 @@
         <div id="ocr-preview-wrap" hidden>
           <div id="ocr-stage" class="ocr-stage">
             <img id="ocr-preview" alt="Preview of the image being sent" class="ocr-preview">
-            <div id="ocr-marks" class="ocr-marks" aria-hidden="true"></div>
           </div>
-          <p class="ocr-hint" id="ocr-tap-hint" hidden>Tap each word you want. Tap a dot again to
-            remove it.</p>
-          <div class="ocr-row" id="ocr-tap-actions" hidden>
-            <span id="ocr-tap-count" class="quickadd-status">No words tapped yet</span>
-            <button type="button" class="btn btn-outline btn-sm" id="ocr-tap-clear">Clear taps</button>
-          </div>
-          <div id="ocr-tap-list" class="ocr-tap-list"></div>
         </div>
 
         <div id="ocr-status" class="quickadd-status" role="status" aria-live="polite"></div>
@@ -2307,9 +2279,7 @@
         <div class="ocr-row" id="ocr-toolbar" hidden>
           <label class="ocr-check"><input type="checkbox" id="ocr-hide-known" checked>
             Hide words I already have</label>
-          <button type="button" class="btn btn-outline btn-sm" id="ocr-select-new">Select all new</button>
           <button type="button" class="btn btn-outline btn-sm" id="ocr-select-none">Clear</button>
-          <button type="button" class="btn btn-outline btn-sm" id="ocr-view-toggle">Fix a word</button>
         </div>
 
         <div id="ocr-results"></div>
@@ -4587,7 +4557,6 @@ function getDueWords(wordsList) {
     function ocrHeaders(token) {
       return { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
     }
-    const OCR_MODEL_STORAGE = 'irish_learner_ocr_model';
     // Downscale target. Image tokens scale with area, so this is the main lever
     // on cost — but NOT on speed: measured upload was 0ms even with the Worker
     // clock starting before the body arrived. Kept at 1568 for OCR accuracy on
@@ -4600,9 +4569,7 @@ function getDueWords(wordsList) {
     let ocrVocabTried = false;
     let ocrBusy = false;
     let ocrClaimed = false;
-    let ocrTaps = [];      // { x, y, thumb, crop } — x/y are 0..1 of the image
-    let ocrLastShot = null; // cached downscaled image so tapping costs nothing
-    let ocrView = 'board';  // 'board' (click words) | 'edit' (fix spellings)
+    let ocrLastShot = null; // cached downscaled image
     let ocrNote = '';       // scale note shown under the results
     let ocrGateFailed = false;
     let ocrTray = [];       // picked cards, in the order picked — this is what gets added
@@ -4651,14 +4618,7 @@ function getDueWords(wordsList) {
         '.ocr-badge.review{background:#fdf0cd;color:#7a5600}',
         '.ocr-badge.reject{background:#f7d7d7;color:#8a1c1c}',
         '.ocr-row-warn{background:rgba(253,240,205,.35)}',
-        '.ocr-stage{position:relative;display:inline-block;max-width:100%;line-height:0;touch-action:manipulation}',
-        '.ocr-stage img{cursor:crosshair}',
-        '.ocr-marks{position:absolute;inset:0}',
-        '.ocr-mark{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;padding:0;border-radius:50%;background:#1f7a3d;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);cursor:pointer;line-height:1}',
-        '.ocr-tap-list{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.6rem}',
-        '.ocr-tap-chip{display:inline-flex;align-items:center;gap:.3rem;border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:.15rem .35rem;font-size:.75rem;background:rgba(255,255,255,.6)}',
-        '.ocr-tap-chip img{height:26px;border-radius:4px;display:block}',
-        '.ocr-tap-chip button{border:0;background:transparent;cursor:pointer;font-size:.9rem;line-height:1;padding:0 .1rem}',
+        '.ocr-stage{position:relative;display:inline-block;max-width:100%;line-height:0}',
         '.ocr-check{display:inline-flex;align-items:center;gap:.35rem;font-size:.78rem;cursor:pointer}',
         '.ocr-group-title{font-size:.76rem;font-weight:700;letter-spacing:.02em;opacity:.65;width:100%;margin:.5rem 0 0}',
         '.ocr-board{display:flex;flex-wrap:wrap;gap:.4rem;margin:.15rem 0 .4rem}',
@@ -4707,10 +4667,6 @@ function getDueWords(wordsList) {
       const tabBtn = document.getElementById('tab-btn-snap');
       if (tabBtn) tabBtn.hidden = false;
 
-      const modelEl = document.getElementById('ocr-model');
-      const savedModel = localStorage.getItem(OCR_MODEL_STORAGE);
-      if (savedModel) modelEl.value = savedModel;
-
       // Two inputs: one opens the camera, one opens the file picker. Both feed
       // the same handler.
       const onPick = async () => {
@@ -4732,22 +4688,7 @@ function getDueWords(wordsList) {
         document.getElementById('ocr-file-upload').click();
       });
 
-      document.getElementById('ocr-mode').addEventListener('change', ocrSyncMode);
-      document.getElementById('ocr-stage').addEventListener('click', ocrStageClick);
-      document.getElementById('ocr-tap-clear').addEventListener('click', () => {
-        ocrResetTaps();
-        ocrSyncRunButton();
-      });
-
       document.getElementById('ocr-hide-known').addEventListener('change', ocrPaint);
-      document.getElementById('ocr-select-new').addEventListener('click', () => {
-        ocrPairs.forEach((p) => {
-          if (p.verdict !== 'reject' && !p.known) {
-            ocrTrayAdd(p.irish, p.english, p.from);
-          }
-        });
-        ocrPaint();
-      });
       document.getElementById('ocr-select-none').addEventListener('click', () => {
         ocrTrayClear();
         ocrPaint();
@@ -4764,25 +4705,9 @@ function getDueWords(wordsList) {
       results.addEventListener('pointermove', ocrDragMove);
       results.addEventListener('pointerup', ocrDragEnd);
       results.addEventListener('pointercancel', ocrDragCancel);
-      document.getElementById('ocr-view-toggle').addEventListener('click', () => {
-        ocrView = ocrView === 'board' ? 'edit' : 'board';
-        ocrPaint();
-      });
 
       document.getElementById('ocr-run').addEventListener('click', ocrRun);
       document.getElementById('ocr-add').addEventListener('click', ocrAddSelected);
-      modelEl.addEventListener('change', () => localStorage.setItem(OCR_MODEL_STORAGE, modelEl.value));
-      ocrSyncMode();
-    }
-
-    function ocrSyncMode() {
-      const modeEl = document.getElementById('ocr-mode');
-      const tapped = !!modeEl && modeEl.value === 'tap';
-      const hint = document.getElementById('ocr-tap-hint');
-      const actions = document.getElementById('ocr-tap-actions');
-      if (hint) hint.hidden = !tapped;
-      if (actions) actions.hidden = !tapped;
-      ocrSyncRunButton();
     }
 
     // Whichever input the user last used is the one holding the file.
@@ -4799,12 +4724,8 @@ function getDueWords(wordsList) {
       if (!btn) return;
       const hasAuth = !!ocrAuthToken();
       const hasFile = !!ocrPickedFile();
-      const modeEl = document.getElementById('ocr-mode');
-      const tapped = !!modeEl && modeEl.value === 'tap';
-
-      btn.disabled = ocrBusy || !hasAuth || !hasFile || (tapped && ocrTaps.length === 0);
-      btn.textContent = ocrBusy ? 'Working…' : (tapped ? 'Read tapped words' : 'Extract words');
-
+      btn.disabled = ocrBusy || !hasAuth || !hasFile;
+      btn.textContent = ocrBusy ? 'Working…' : 'Extract words';
     }
 
     // Load and downscale the chosen file without calling the API. Cached so that
@@ -4822,126 +4743,6 @@ function getDueWords(wordsList) {
       } catch (e) {
         ocrStatus('Could not read that image.', 'error');
         return null;
-      }
-    }
-
-    // ── Tap to select ──
-    function ocrResetTaps() {
-      ocrTaps = [];
-      ocrRenderMarks();
-      ocrRenderTapList();
-    }
-
-    function ocrStageClick(e) {
-      const img = document.getElementById('ocr-preview');
-      if (!img || !img.naturalWidth) return;
-      const rect = img.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = (e.clientY - rect.top) / rect.height;
-      if (x < 0 || x > 1 || y < 0 || y > 1) return;
-      ocrTaps.push({ x: x, y: y, thumb: ocrCropThumb(x, y), crop: ocrCropForModel(x, y) });
-      ocrRenderMarks();
-      ocrRenderTapList();
-      ocrSyncRunButton();
-    }
-
-    // A small crop around the tap so the user can see what they picked. Cheap
-    // insurance against tapping the wrong word on a phone.
-    function ocrCropThumb(x, y) {
-      const img = document.getElementById('ocr-preview');
-      if (!img || !img.naturalWidth) return '';
-      const w = Math.max(24, Math.round(img.naturalWidth * 0.24));
-      const h = Math.max(18, Math.round(img.naturalHeight * 0.12));
-      const sx = Math.min(Math.max(0, Math.round(x * img.naturalWidth - w / 2)), Math.max(0, img.naturalWidth - w));
-      const sy = Math.min(Math.max(0, Math.round(y * img.naturalHeight - h / 2)), Math.max(0, img.naturalHeight - h));
-      const canvas = document.createElement('canvas');
-      canvas.width = 110;
-      canvas.height = Math.max(1, Math.round(110 * (h / w)));
-      try {
-        canvas.getContext('2d').drawImage(img, sx, sy, w, h, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL('image/jpeg', 0.8);
-      } catch (err) {
-        return '';
-      }
-    }
-
-    function ocrRenderMarks() {
-      const layer = document.getElementById('ocr-marks');
-      if (!layer) return;
-      layer.innerHTML = ocrTaps.map((t, i) =>
-        '<button type="button" class="ocr-mark" data-ocr-mark="' + i + '"' +
-        ' style="left:' + (t.x * 100).toFixed(2) + '%;top:' + (t.y * 100).toFixed(2) + '%"' +
-        ' title="Remove tap ' + (i + 1) + '">' + (i + 1) + '</button>'
-      ).join('');
-      layer.querySelectorAll('[data-ocr-mark]').forEach((el) => {
-        el.addEventListener('click', (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          ocrTaps.splice(Number(el.dataset.ocrMark), 1);
-          ocrRenderMarks();
-          ocrRenderTapList();
-          ocrSyncRunButton();
-        });
-      });
-    }
-
-    function ocrRenderTapList() {
-      const count = document.getElementById('ocr-tap-count');
-      if (count) {
-        count.textContent = ocrTaps.length
-          ? ocrTaps.length + ' word' + (ocrTaps.length === 1 ? '' : 's') + ' tapped'
-          : 'No words tapped yet';
-      }
-      const wrap = document.getElementById('ocr-tap-list');
-      if (!wrap) return;
-      wrap.innerHTML = ocrTaps.map((t, i) =>
-        '<span class="ocr-tap-chip">' +
-        (t.thumb ? '<img src="' + t.thumb + '" alt="">' : '') +
-        '<b>' + (i + 1) + '</b>' +
-        '<button type="button" data-ocr-tapdel="' + i + '" aria-label="Remove tap ' + (i + 1) + '">×</button>' +
-        '</span>'
-      ).join('');
-      wrap.querySelectorAll('[data-ocr-tapdel]').forEach((el) => {
-        el.addEventListener('click', () => {
-          ocrTaps.splice(Number(el.dataset.ocrTapdel), 1);
-          ocrRenderMarks();
-          ocrRenderTapList();
-          ocrSyncRunButton();
-        });
-      });
-    }
-
-    // A generous, upscaled crop around the tap.
-    //
-    // Measured: asking the model "which word is nearest this point?" is a guess
-    // and it guesses wrong — on the word book it returned eilifint for a tap on
-    // tarracóir and ialtóg for a tap on madra. A crop contains one word, so
-    // there is nothing to disambiguate, and the same taps then came back right.
-    // The crop is wide enough for a two-word phrase and upscaled 2x so a
-    // slightly-off tap still contains the whole word.
-    function ocrCropForModel(x, y) {
-      const img = document.getElementById('ocr-preview');
-      if (!img || !img.naturalWidth) return '';
-      // Wide and short: width gives a sloppy tap room to still land on a
-      // two-word phrase, height stays shallow because a tall crop swallows
-      // several lines of handwriting and the model lists all of them
-      // (measured: a 0.17-tall crop returned 10 pairs from 4 taps).
-      const cw = Math.max(40, Math.round(img.naturalWidth * 0.40));
-      const ch = Math.max(24, Math.round(img.naturalHeight * 0.11));
-      const sx = Math.min(Math.max(0, Math.round(x * img.naturalWidth - cw / 2)), Math.max(0, img.naturalWidth - cw));
-      const sy = Math.min(Math.max(0, Math.round(y * img.naturalHeight - ch / 2)), Math.max(0, img.naturalHeight - ch));
-      const canvas = document.createElement('canvas');
-      canvas.width = cw * 2;
-      canvas.height = ch * 2;
-      const ctx = canvas.getContext('2d');
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      try {
-        ctx.drawImage(img, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL('image/jpeg', 0.9);
-      } catch (err) {
-        return '';
       }
     }
 
@@ -5122,7 +4923,6 @@ function getDueWords(wordsList) {
           method: 'POST',
           headers: ocrHeaders(key),
           body: JSON.stringify({
-            model: document.getElementById('ocr-model').value,
             max_tokens: 300,
             mode: 'lookup',
             selection: selection,
@@ -5188,15 +4988,11 @@ function getDueWords(wordsList) {
     async function ocrRun() {
       const key = ocrAuthToken();
       const file = ocrPickedFile();
-      const kind = document.getElementById('ocr-kind').value;
-      const model = document.getElementById('ocr-model').value;
-      const mode = document.getElementById('ocr-mode').value;
       if (!key) {
         toast('Please sign in first', 'error');
         return;
       }
       if (!file) { toast('Choose an image first', 'error'); return; }
-      if (mode === 'tap' && !ocrTaps.length) { toast('Tap the words you want on the image first', 'error'); return; }
       if (ocrBusy) return;
 
       ocrBusy = true;
@@ -5216,19 +5012,15 @@ function getDueWords(wordsList) {
 
         const kb = Math.round((shot.bytes || 0) / 1024);
         console.log('[OCR] uploading', shot.w + 'x' + shot.h, kb + 'KB', 'of', shot.sourceW + 'x' + shot.sourceH);
-        ocrStatus('Sending ' + shot.w + '×' + shot.h + ' (' + kb + 'KB) to ' + model + '…', 'pending');
+        ocrStatus('Sending ' + shot.w + '×' + shot.h + ' (' + kb + 'KB)…', 'pending');
 
         const started = Date.now();
         const resp = await fetch(ocrEndpoint(), {
           method: 'POST',
           headers: ocrHeaders(key),
           body: JSON.stringify({
-            model: model,
             max_tokens: 1800,
-            kind: kind,
-            mode: mode,
             image: shot.dataUrl,
-            taps: ocrTaps.map((t) => ({ crop: t.crop })),
           }),
         });
 
@@ -5324,58 +5116,38 @@ function getDueWords(wordsList) {
       ocrGateFailed = !!gateFailed;
       document.getElementById('ocr-actions').hidden = false;
       document.getElementById('ocr-toolbar').hidden = false;
-      ocrView = 'board';
       ocrPaint();
     }
 
     function ocrPaint() {
       const wrap = document.getElementById('ocr-results');
       if (!wrap) return;
-      wrap.innerHTML = ocrView === 'board' ? ocrBoardHtml() : ocrTableHtml();
+      wrap.innerHTML = ocrBoardHtml();
 
-      if (ocrView === 'board') {
-        wrap.querySelectorAll('[data-ocr-pick]').forEach((el) => {
-          el.addEventListener('click', (e) => {
-            // A drag just handled this; do not also treat it as a tap.
-            if (ocrSuppressClick) { ocrSuppressClick = false; return; }
+      wrap.querySelectorAll('[data-ocr-pick]').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          // A drag just handled this; do not also treat it as a tap.
+          if (ocrSuppressClick) { ocrSuppressClick = false; return; }
 
-            const i = Number(el.dataset.ocrPick);
-            const p = ocrPairs[i];
-            if (!p) return;
+          const i = Number(el.dataset.ocrPick);
+          const p = ocrPairs[i];
+          if (!p) return;
 
-            // A click on a word inside a phrase means "pick this word", not the
-            // whole phrase.
-            const wordEl = e.target.closest ? e.target.closest('[data-ocr-word]') : null;
-            if (wordEl) {
-              e.stopPropagation();
-              ocrLookupWord(wordEl.dataset.ocrWord, p.irish);
-              return;
-            }
+          // A click on a word inside a phrase means "pick this word", not the
+          // whole phrase.
+          const wordEl = e.target.closest ? e.target.closest('[data-ocr-word]') : null;
+          if (wordEl) {
+            e.stopPropagation();
+            ocrLookupWord(wordEl.dataset.ocrWord, p.irish);
+            return;
+          }
 
-            if (ocrTrayHas(p.irish)) ocrTrayRemove(p.irish);
-            else ocrTrayAdd(p.irish, p.english, p.from);
-            ocrPaint();
-          });
+          if (ocrTrayHas(p.irish)) ocrTrayRemove(p.irish);
+          else ocrTrayAdd(p.irish, p.english, p.from);
+          ocrPaint();
         });
-      } else {
-        // Edit view: the checkbox means "in the tray"; the text fields edit the
-        // extracted text.
-        wrap.querySelectorAll('input[data-ocr-keep]').forEach((el) => {
-          el.addEventListener('change', () => {
-            const p = ocrPairs[Number(el.dataset.ocrKeep)];
-            if (!p) return;
-            if (el.checked) ocrTrayAdd(p.irish, p.english, p.from);
-            else ocrTrayRemove(p.irish);
-            ocrTrayRender();
-          });
-        });
-        wrap.querySelectorAll('input[data-ocr-irish], input[data-ocr-english]').forEach((el) => {
-          el.addEventListener('input', ocrOnEdit);
-        });
-      }
+      });
 
-      const toggle = document.getElementById('ocr-view-toggle');
-      if (toggle) toggle.textContent = ocrView === 'board' ? 'Fix a word' : 'Back to words';
       ocrTrayRender();
       ocrUpdateSummary();
     }
@@ -5631,8 +5403,8 @@ function getDueWords(wordsList) {
         : '';
 
       let html = '';
-      html += section('Identified Irish', buckets.words, 'tap one to add it');
-      html += section('Identified Irish phrases', buckets.phrases, 'tap any word in a phrase to make it a card');
+      html += section('Identified Irish translations', buckets.words.concat(buckets.phrases),
+        'tap one to add it; tap a word inside a phrase to make it a card');
       if (!skipKnown) html += section('Already in your deck', buckets.known);
       html += section('Needs review — unclear if Irish', buckets.check, 'the model was not sure this is Irish');
 
@@ -5658,53 +5430,6 @@ function getDueWords(wordsList) {
       return html;
     }
 
-    function ocrTableHtml() {
-      const rows = ocrPairs.map((p, i) =>
-        '<tr' + (p.verdict === 'reject' ? ' class="ocr-row-warn"' : '') + '>' +
-        '<td><input type="checkbox" data-ocr-keep="' + i + '"' + (ocrTrayHas(p.irish) ? ' checked' : '') + '></td>' +
-        '<td><input type="text" data-ocr-irish="' + i + '" value="' + ocrEscapeAttr(p.irish) + '"></td>' +
-        '<td><input type="text" data-ocr-english="' + i + '" value="' + ocrEscapeAttr(p.english) + '"></td>' +
-        '<td><span class="ocr-badge ' + p.verdict + '" title="' + ocrEscapeAttr(p.why) + '">' +
-        p.verdict + '</span></td></tr>'
-      ).join('');
-      return '<table class="ocr-table"><thead><tr><th></th><th>Irish</th><th>English</th><th>Check</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table>' + ocrFootnote();
-    }
-
-    function ocrCollect() {
-      const wrap = document.getElementById('ocr-results');
-      if (!wrap) return;
-      wrap.querySelectorAll('input[data-ocr-irish]').forEach((el) => {
-        const i = Number(el.dataset.ocrIrish);
-        if (ocrPairs[i]) ocrPairs[i].irish = el.value;
-      });
-      wrap.querySelectorAll('input[data-ocr-english]').forEach((el) => {
-        const i = Number(el.dataset.ocrEnglish);
-        if (ocrPairs[i]) ocrPairs[i].english = el.value;
-      });
-    }
-
-    function ocrOnEdit() {
-      ocrCollect();
-      const wrap = document.getElementById('ocr-results');
-      ocrPairs.forEach((p, i) => {
-        const v = ocrVerdict(p);
-        p.verdict = v.v;
-        p.why = v.why;
-        const el = wrap.querySelector('input[data-ocr-irish="' + i + '"]');
-        const row = el && el.closest('tr');
-        if (!row) return;
-        const badge = row.querySelector('.ocr-badge');
-        if (badge) {
-          badge.className = 'ocr-badge ' + p.verdict;
-          badge.textContent = p.verdict;
-          badge.title = p.why;
-        }
-        row.classList.toggle('ocr-row-warn', p.verdict === 'reject');
-      });
-      ocrUpdateSummary();
-    }
-
     function ocrUpdateSummary() {
       const el = document.getElementById('ocr-summary');
       if (el) {
@@ -5714,8 +5439,6 @@ function getDueWords(wordsList) {
     }
 
     function ocrAddSelected() {
-      // Re-read the inputs: the user may have corrected them by hand.
-      ocrCollect();
       if (!ocrTray.length) { toast('Nothing picked yet', 'error'); return; }
 
       let added = 0;
