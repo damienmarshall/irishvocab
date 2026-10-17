@@ -3061,7 +3061,11 @@
             headers: {
               'apikey': SUPABASE_ANON_KEY,
               'Authorization': `Bearer ${activeSession.access_token}`,
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              // Without this the POST is a plain INSERT, so a word already in
+              // the table fails with "duplicate key violates unique constraint"
+              // instead of being updated.
+              'Prefer': 'resolution=merge-duplicates'
             },
             body: JSON.stringify(rows)
           });
