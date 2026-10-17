@@ -1319,8 +1319,43 @@
 
     /* Responsive */
     @media (max-width: 600px) {
+      /* The nav is a space-between row, so on a narrow screen the logo and the
+         buttons fight for room and the buttons get pushed off the edge. Let it
+         wrap and shrink instead. */
       nav {
-        padding: 0.7rem 1rem;
+        padding: 0.6rem 0.8rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .nav-logo {
+        gap: 0.5rem;
+      }
+
+      .nav-logo-icon {
+        width: 30px;
+        height: 30px;
+        font-size: 1rem;
+      }
+
+      .nav-logo-text {
+        font-size: 0.95rem;
+      }
+
+      .nav-right {
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      /* The email is long and is what pushes the buttons off-screen. */
+      #nav-user-info {
+        display: none !important;
+      }
+
+      .nav-right .btn {
+        font-size: 0.75rem;
+        padding: 0.35rem 0.6rem;
       }
 
       #section-hero {
@@ -3028,7 +3063,17 @@
       if (!queue.length) return { ok: true };
       if (!activeSession || !activeSession.user_id) return { ok: false, error: 'not signed in' };
 
-      const batch = queue.slice();
+      // Postgres rejects a batch that contains the same (user_id, word) twice
+      // ("no rows proposed for insertion within the same command have duplicate
+      // constrained values"), so keep only the newest entry per word.
+      const byWord = new Map();
+      queue.forEach(w => {
+        const key = String(w.english || '').trim().toLowerCase();
+        if (!key) return;
+        const prev = byWord.get(key);
+        if (!prev || (w.timestamp || 0) >= (prev.timestamp || 0)) byWord.set(key, w);
+      });
+      const batch = [...byWord.values()];
 
       // PostgREST rejects a bulk upsert whose objects do not all share the same
       // keys ("All object keys must match"). pronunciation is omitted when
