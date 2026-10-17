@@ -2230,9 +2230,8 @@
     <div class="tab-panel" id="panel-snap" role="tabpanel" aria-labelledby="tab-btn-snap" data-panel="snap">
       <div class="ocr-test-panel" id="ocr-test-panel" hidden>
         <div class="custom-card-header">
-          <h3>📷 Snap a page</h3>
-          <p>Take a photo of Irish text and pull out the words and their translations. Nothing is
-            saved until you press Add — check every line first.</p>
+          <h3>Photo to flashcards</h3>
+          <p>Take a photo of Irish text and extract flashcards with translations. In beta, can make mistakes!        saved until you press Add — check every line first.</p>
         </div>
 
         <!-- Two ways in, each going straight where it says. `capture` sends a
@@ -2249,10 +2248,6 @@
         </div>
         <input id="ocr-file" type="file" accept="image/*" capture="environment" hidden>
         <input id="ocr-file-upload" type="file" accept="image/*" hidden>
-
-        <div class="ocr-row">
-          <button type="button" class="btn btn-primary btn-sm" id="ocr-run" disabled>Extract words</button>
-        </div>
 
         <div id="ocr-preview-wrap" hidden>
           <div id="ocr-stage" class="ocr-stage">
@@ -2280,6 +2275,7 @@
         </div>
 
         <div class="ocr-row" id="ocr-toolbar" hidden>
+          <button type="button" class="btn btn-primary btn-sm" id="ocr-run" disabled>Extract words</button>
           <label class="ocr-check"><input type="checkbox" id="ocr-hide-known" checked>
             Hide words I already have</label>
         </div>
@@ -4636,7 +4632,7 @@ function getDueWords(wordsList) {
         '.ocr-card.pending{opacity:.6}',
         '.ocr-tray{border:1px solid rgba(31,122,61,.35);background:rgba(230,244,234,.5);border-radius:10px;padding:.5rem .6rem;margin-bottom:.6rem}',
         '.ocr-tray[hidden]{display:none!important}',
-        '.ocr-tray-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem}',
+        '.ocr-tray-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem}',
         '.ocr-tray-head strong{font-size:.82rem}',
         '.ocr-tray-actions{display:inline-flex;gap:.4rem}',
         '.ocr-tray .ocr-card{background:#fff}',
@@ -4674,6 +4670,10 @@ function getDueWords(wordsList) {
         ocrStatus('');
         // Show the image straight away, so the user can see what was picked.
         await ocrPreviewFile();
+        // Extract and "hide words I already have" only make sense once there is
+        // an image, so they appear with it.
+        document.getElementById('ocr-toolbar').hidden = false;
+        document.getElementById('ocr-toolbar-hint').hidden = false;
         ocrSyncRunButton();
       };
       document.getElementById('ocr-file').addEventListener('change', onPick);
@@ -4700,7 +4700,14 @@ function getDueWords(wordsList) {
       results.addEventListener('pointercancel', ocrDragCancel);
 
       document.getElementById('ocr-run').addEventListener('click', ocrRun);
-      document.getElementById('ocr-add').addEventListener('click', ocrAddSelected);
+      // Delegated from the panel rather than bound to the button: the tray is
+      // re-rendered on every paint, and a direct listener on a button inside it
+      // proved unreliable on mobile Safari.
+      panel.addEventListener('click', (e) => {
+        const t = e.target;
+        if (!t || !t.closest) return;
+        if (t.closest('#ocr-add')) { e.preventDefault(); ocrAddSelected(); }
+      });
     }
 
     // Whichever input the user last used is the one holding the file.
