@@ -3020,10 +3020,12 @@
       localStorage.setItem(QA_QUEUE_KEY, JSON.stringify(queue));
     }
 
+    // Returns true when the queue is empty (nothing to send, or everything
+    // sent), false when it could not be sent.
     async function qaFlushQueue() {
       const queue = qaLoadQueue();
-      if (!queue.length) return;
-      if (!activeSession || !activeSession.user_id) return;
+      if (!queue.length) return true;
+      if (!activeSession || !activeSession.user_id) return false;
 
       const batch = queue.slice();
       const payload = batch.map(w => {
@@ -3059,8 +3061,10 @@
 
         // Only drop the entries that were actually sent
         qaSaveQueue(qaLoadQueue().filter(q => !batch.some(b => b.token === q.token)));
+        return true;
       } catch (err) {
         console.warn('Quick add: sync failed, words stay queued locally.', err);
+        return false;
       }
     }
 
@@ -4580,6 +4584,7 @@ function getDueWords(wordsList) {
     let ocrVocab = null;
     let ocrVocabTried = false;
     let ocrBusy = false;
+    let ocrAdding = false;
     let ocrClaimed = false;
     let ocrLastShot = null; // cached downscaled image
     let ocrNote = '';       // scale note shown under the results
@@ -5452,8 +5457,16 @@ function getDueWords(wordsList) {
       return ocrTray;
     }
 
-    function ocrAddSelected() {
+    function ocrSyncAddButton() {
+      const btn = document.getElementById('ocr-add');
+      if (!btn) return;
+      btn.disabled = ocrAdding;
+      btn.textContent = ocrAdding ? 'Adding…' : 'Add flashcards';
+    }
+
+    async function ocrAddSelected() {
       if (!ocrTray.length) { toast('Nothing picked yet', 'error'); return; }
+      if (ocrAdding) return;
 
       let added = 0;
       let dupes = 0;
@@ -5468,21 +5481,36 @@ function getDueWords(wordsList) {
         else unusable++;
       });
 
-      const bits = ['Added ' + added];
-      if (dupes) bits.push(dupes + ' duplicate' + (dupes === 1 ? '' : 's'));
-      if (unusable) bits.push(unusable + ' unusable');
-      ocrStatus(bits.join(', '), added ? 'success' : 'error');
-      toast(added ? 'Added ' + added + ' word' + (added === 1 ? '' : 's') + ' from the photo' : 'Nothing added',
-        added ? 'success' : 'error');
+      if (!added) {
+        const bits = ['Added 0'];
+        if (dupes) bits.push(dupes + ' duplicate' + (dupes === 1 ? '' : 's'));
+        if (unusable) bits.push(unusable + ' unusable');
+        ocrStatus(bits.join(', '), 'error');
+        toast('Nothing added', 'error');
+        return;
+      }
 
-      if (added) {
-        ocrTrayClear();
-        ocrPaint();
-        // Show the new cards straight away from the in-memory deck, then push
-        // them. Re-fetching here would replace allWords with the server copy
-        // and drop anything whose upload had not landed yet.
-        qaRenderDeckFromMemory();
-        qaScheduleSync();
+      // Show the new cards straight away from the in-memory deck, then WAIT for
+      // the upload. The old code scheduled the sync 1.5s later, so closing the
+      // tab in that window lost the words.
+      ocrTrayClear();
+      qaRenderDeckFromMemory();
+      ocrPaint();
+
+      ocrAdding = true;
+      ocrSyncAddButton();
+      ocrStatus('Adding ' + added + '…', 'pending');
+      const synced = await qaFlushQueue();
+      ocrAdding = false;
+      ocrSyncAddButton();
+
+      const tail = dupes ? ', ' + dupes + ' duplicate' + (dupes === 1 ? '' : 's') : '';
+      if (synced) {
+        ocrStatus('Added ' + added + tail, 'success');
+        toast('Added ' + added + ' word' + (added === 1 ? '' : 's') + ' from the photo', 'success');
+      } else {
+        ocrStatus('Added ' + added + tail + ' — saved on this device, will sync when online', 'pending');
+        toast('Saved on this device; will sync when online', 'pending');
       }
     }
 
