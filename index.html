@@ -2231,7 +2231,7 @@
       <div class="ocr-test-panel" id="ocr-test-panel" hidden>
         <div class="custom-card-header">
           <h3>Photo to flashcards</h3>
-          <p>Take a photo of Irish text and extract flashcards with translations. In beta, can make mistakes!        saved until you press Add — check every line first.</p>
+          <p>Take a photo of Irish text and extract flashcards with translations. In beta, can make mistakes!</p>
         </div>
 
         <!-- Two ways in, each going straight where it says. `capture` sends a
@@ -3286,11 +3286,28 @@
       }
     }
 
-    // Debounced full refresh - avoids refetching every flashcard per word.
+    // Re-render the deck from the in-memory list.
+    //
+    // This used to re-fetch from Supabase, which REPLACED allWords with the
+    // server copy — so a word whose upload had not landed yet vanished again,
+    // and on a slow connection the whole deck could come back empty.
+    function qaRenderDeckFromMemory() {
+      activeWords = (allWords || []).filter(w => !w.timestamp || w.timestamp <= Date.now());
+      updateStats(activeWords);
+      renderSpacedRepPanel();
+      renderWordGrid(activeWords);
+      if (activeWords.length) {
+        currentIndex = 0;
+        renderCard(currentIndex);
+        updateNavButtons();
+      }
+    }
+
+    // Debounced refresh after a batch of adds.
     function qaRefreshDeckSoon() {
       clearTimeout(qaRefreshTimer);
       qaRefreshTimer = setTimeout(() => {
-        loadWords(activeSession).then(() => qaFlushQueue());
+        qaFlushQueue().then(qaRenderDeckFromMemory);
       }, 2500);
     }
 
@@ -5332,13 +5349,8 @@ function getDueWords(wordsList) {
         '<span class="en">' + (t.pending ? 'looking up…' : ocrEscapeAttr(t.english)) + '</span></div>'
       ).join('');
 
-      list.querySelectorAll('[data-ocr-tray]').forEach((el) => {
-        el.addEventListener('click', () => {
-          const i = Number(el.dataset.ocrTray);
-          if (ocrTray[i]) ocrTrayRemove(ocrTray[i].irish);
-          ocrPaint();
-        });
-      });
+      // Only the X removes a pick. Tapping the card itself used to remove it
+      // too, so a tap meant to inspect a card silently dropped it.
       list.querySelectorAll('[data-ocr-traydel]').forEach((el) => {
         el.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -5466,8 +5478,11 @@ function getDueWords(wordsList) {
       if (added) {
         ocrTrayClear();
         ocrPaint();
+        // Show the new cards straight away from the in-memory deck, then push
+        // them. Re-fetching here would replace allWords with the server copy
+        // and drop anything whose upload had not landed yet.
+        qaRenderDeckFromMemory();
         qaScheduleSync();
-        qaRefreshDeckSoon();
       }
     }
 
