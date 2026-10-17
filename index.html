@@ -3029,7 +3029,12 @@
       if (!activeSession || !activeSession.user_id) return { ok: false, error: 'not signed in' };
 
       const batch = queue.slice();
-      const payload = batch.map(w => {
+
+      // PostgREST rejects a bulk upsert whose objects do not all share the same
+      // keys ("All object keys must match"). pronunciation is omitted when
+      // blank, so rows are grouped by their key set and sent in batches.
+      const groups = new Map();
+      batch.forEach(w => {
         const row = {
           user_id: activeSession.user_id,
           word: w.english,
@@ -3044,21 +3049,25 @@
         // was already stored server-side.
         const pron = (w.pronunciation || '').trim();
         if (pron) row.pronunciation = pron;
-        return row;
+        const sig = Object.keys(row).sort().join(',');
+        if (!groups.has(sig)) groups.set(sig, []);
+        groups.get(sig).push(row);
       });
 
       try {
-        const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${activeSession.access_token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
+        for (const rows of groups.values()) {
+          const resp = await fetch(`${SUPABASE_URL}/rest/v1/flashcards?on_conflict=user_id,word`, {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${activeSession.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(rows)
+          });
 
-        if (!resp.ok) throw new Error(await resp.text());
+          if (!resp.ok) throw new Error(await resp.text());
+        }
 
         // Only drop the entries that were actually sent
         qaSaveQueue(qaLoadQueue().filter(q => !batch.some(b => b.token === q.token)));
