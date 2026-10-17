@@ -3020,12 +3020,13 @@
       localStorage.setItem(QA_QUEUE_KEY, JSON.stringify(queue));
     }
 
-    // Returns true when the queue is empty (nothing to send, or everything
-    // sent), false when it could not be sent.
+    // Returns { ok, error }. ok is true when the queue is empty (nothing to
+    // send, or everything sent). The error is surfaced so a failed upload says
+    // why rather than a vague "will sync later".
     async function qaFlushQueue() {
       const queue = qaLoadQueue();
-      if (!queue.length) return true;
-      if (!activeSession || !activeSession.user_id) return false;
+      if (!queue.length) return { ok: true };
+      if (!activeSession || !activeSession.user_id) return { ok: false, error: 'not signed in' };
 
       const batch = queue.slice();
       const payload = batch.map(w => {
@@ -3061,10 +3062,10 @@
 
         // Only drop the entries that were actually sent
         qaSaveQueue(qaLoadQueue().filter(q => !batch.some(b => b.token === q.token)));
-        return true;
+        return { ok: true };
       } catch (err) {
         console.warn('Quick add: sync failed, words stay queued locally.', err);
-        return false;
+        return { ok: false, error: String((err && err.message) || err).slice(0, 160) };
       }
     }
 
@@ -5500,17 +5501,20 @@ function getDueWords(wordsList) {
       ocrAdding = true;
       ocrSyncAddButton();
       ocrStatus('Adding ' + added + '…', 'pending');
-      const synced = await qaFlushQueue();
+      const r = await qaFlushQueue();
       ocrAdding = false;
       ocrSyncAddButton();
 
       const tail = dupes ? ', ' + dupes + ' duplicate' + (dupes === 1 ? '' : 's') : '';
-      if (synced) {
-        ocrStatus('Added ' + added + tail, 'success');
+      if (r.ok) {
+        ocrStatus('Added ' + added + tail + ' and synced', 'success');
         toast('Added ' + added + ' word' + (added === 1 ? '' : 's') + ' from the photo', 'success');
       } else {
-        ocrStatus('Added ' + added + tail + ' — saved on this device, will sync when online', 'pending');
-        toast('Saved on this device; will sync when online', 'pending');
+        // Keep retrying in the background, but say plainly that it has NOT gone
+        // up, so the tab is not closed on a false success.
+        qaScheduleSync();
+        ocrStatus('Added ' + added + tail + ' on this device, but the sync failed: ' + r.error, 'error');
+        toast('Sync failed: ' + r.error, 'error');
       }
     }
 
