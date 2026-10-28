@@ -2895,7 +2895,8 @@
     let settings = {
       srTime: localStorage.getItem('srTime') || '09:00',
       srPopupEnabled: localStorage.getItem('srPopupEnabled') !== 'false',
-      dailyScealEnabled: localStorage.getItem('dailyScealEnabled') === 'true'
+      dailyScealEnabled: localStorage.getItem('dailyScealEnabled') === 'true',
+      mainWordLanguage: localStorage.getItem('mainWordLanguage') === 'irish' ? 'irish' : 'english'
     };
 
     async function fetchUserSettings(session) {
@@ -2916,10 +2917,15 @@
             if (rows[0].daily_sceal_enabled !== undefined && rows[0].daily_sceal_enabled !== null) {
               settings.dailyScealEnabled = !!rows[0].daily_sceal_enabled;
             }
+            // main_word_language is optional too; keep the local value when absent.
+            if (rows[0].main_word_language === 'english' || rows[0].main_word_language === 'irish') {
+              settings.mainWordLanguage = rows[0].main_word_language;
+            }
             // Cache locally for offline use
             localStorage.setItem('srTime', settings.srTime);
             localStorage.setItem('srPopupEnabled', settings.srPopupEnabled.toString());
             localStorage.setItem('dailyScealEnabled', settings.dailyScealEnabled.toString());
+            localStorage.setItem('mainWordLanguage', settings.mainWordLanguage);
           }
         }
       } catch (err) {
@@ -3601,6 +3607,12 @@ function getDueWords(wordsList) {
 
         const learned = new Date(w.learningTimestamp || w.learning_timestamp || w.timestamp).toLocaleDateString();
 
+        const primaryTrans = w.primary_translation ||
+          (Array.isArray(w.senses) && w.senses[0]?.translations?.[0]) || '';
+        const irishMain = settings.mainWordLanguage === 'irish' && !!primaryTrans;
+        const mainWord = irishMain ? primaryTrans : w.word;
+        const answerWord = irishMain ? w.word : primaryTrans;
+
         // Pronunciation is optional. It only appears once the item is
         // expanded - showing it in the collapsed header would give the
         // answer away before the user has recalled the word.
@@ -3613,7 +3625,7 @@ function getDueWords(wordsList) {
           <div class="sr-review-item" data-word="${escHtml(w.word)}" id="sr-item-${idx}">
             <div class="sr-review-item-header">
               <div class="sr-review-word-info">
-                <h4>${escHtml(w.word)}</h4>
+                <h4>${escHtml(mainWord)}</h4>
                 <span class="sr-stage-tag">Interval ${stepNum}</span>
               </div>
               <div class="sr-review-actions">
@@ -3625,6 +3637,7 @@ function getDueWords(wordsList) {
             </div>
             <div class="sr-review-item-body">
               <div class="sr-review-item-details">
+                ${irishMain && answerWord ? `<div class="sr-review-trans">${escHtml(answerWord)}</div>` : ''}
                 ${sensesHtml}
                 ${pronHtml}
                 <div class="sr-review-meta">First learned: ${learned} | Current Level: ${w.srStep || w.sr_step || 0}/5</div>
@@ -3755,21 +3768,22 @@ function getDueWords(wordsList) {
             pendingReviewUpdates.push({ ...word });
           }
 
+          // Mastering permanently retires the card, so push it now. Waiting
+          // until the rest of the queue is done would lose this change if the
+          // user closes the site with other cards still due.
+          syncPendingReviewUpdates()
+            .then(() => toast('Card mastered and synced.', 'success'))
+            .catch(err => {
+              console.error('spaced repetition sync failed:', err);
+              toast('Mastered locally — sync failed.', 'error');
+            });
+
           // Visually remove item
           const itemEl = btn.closest('.sr-review-item');
           if (itemEl) {
             itemEl.classList.add('fade-out');
             setTimeout(() => {
               renderSpacedRepPanel();
-              const remaining = getDueWords(allWords);
-              if (remaining.length === 0 && pendingReviewUpdates.length > 0) {
-                syncPendingReviewUpdates().then(() => {
-                  toast(`Finished your review and synced ${pendingReviewUpdates.length} card${pendingReviewUpdates.length === 1 ? '' : 's'}.`, 'success');
-                }).catch(err => {
-                  console.error('spaced repetition sync failed:', err);
-                  toast('Could not sync your review progress.', 'error');
-                });
-              }
             }, 300);
           }
         });
@@ -3786,6 +3800,12 @@ function getDueWords(wordsList) {
       const primaryTrans = word.primary_translation || senses[0]?.translations?.[0] || '—';
       const pronunciation = (word.pronunciation || '').trim();
 
+      // The deck stores English in `word` and Irish in `primary_translation`.
+      // Swap sides when the synced setting asks for Irish as the main word.
+      const irishMain = settings.mainWordLanguage === 'irish' && primaryTrans && primaryTrans !== '—';
+      const mainWord = irishMain ? primaryTrans : word.word;
+      const answerWord = irishMain ? word.word : primaryTrans;
+
       const card = document.createElement('div');
       card.className = 'flashcard';
 
@@ -3793,7 +3813,7 @@ function getDueWords(wordsList) {
       const front = document.createElement('div');
       front.className = 'card-face';
       front.innerHTML = `
-    <div class="card-irish-word">${escHtml(word.word)}</div>
+    <div class="card-irish-word">${escHtml(mainWord)}</div>
     <div class="card-tap-hint">tap to reveal</div>
   `;
 
@@ -3811,8 +3831,8 @@ function getDueWords(wordsList) {
       </div>`;
       }
       back.innerHTML = `
-    <div class="card-back-word">${escHtml(word.word)}</div>
-    <div class="card-back-def">${escHtml(primaryTrans)}</div>
+    <div class="card-back-word">${escHtml(mainWord)}</div>
+    <div class="card-back-def">${escHtml(answerWord)}</div>
     ${pronunciation ? `<div class="card-back-pronunciation">${escHtml(pronunciation)}</div>` : ''}
     ${sensesHtml}
     <div class="card-pron-editor">
@@ -3904,11 +3924,12 @@ function getDueWords(wordsList) {
       words.forEach((word, i) => {
         const primaryTrans = word.primary_translation ||
           (Array.isArray(word.senses) && word.senses[0]?.translations?.[0]) || '';
+        const irishMain = settings.mainWordLanguage === 'irish' && !!primaryTrans;
         const chip = document.createElement('div');
         chip.className = 'word-chip';
         chip.innerHTML = `
-      <div class="word-chip-word">${escHtml(word.word)}</div>
-      <div class="word-chip-trans">${escHtml(primaryTrans)}</div>
+      <div class="word-chip-word">${escHtml(irishMain ? primaryTrans : word.word)}</div>
+      <div class="word-chip-trans">${escHtml(irishMain ? word.word : primaryTrans)}</div>
     `;
         chip.addEventListener('click', () => {
           currentIndex = i;
