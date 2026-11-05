@@ -2249,7 +2249,7 @@
         </div>
 
         <textarea id="qa-bulk-input" class="bulk-input" rows="5" autocapitalize="off" autocorrect="off"
-          spellcheck="false" placeholder="dog,madra&#10;cat, cat&#10;house,teach,chock&#10;&#10;CSV works too:&#10;"dog","madra","MADR-RA"&#10;&#10;Third column = pronunciation.&#10;Drag to enlarge."></textarea>
+          spellcheck="false" placeholder="dog,madra&#10;cat, cat&#10;house,teach,chock&#10;dog: madra&#10;&#10;CSV works too:&#10;"dog","madra","MADR-RA"&#10;&#10;Third column = pronunciation.&#10;Drag to enlarge."></textarea>
 
         <div class="fada-bar" id="qa-fada-bar" aria-label="Irish character shortcuts"
           style="margin-top:0.6rem;"></div>
@@ -3280,6 +3280,11 @@
           // Comma is a full delimiter so a CSV can be pasted straight in.
           const comma = line.split(/\s*,\s*/);
           if (comma.length === 2 || comma.length === 3) parts = comma;
+        }
+        if (!parts) {
+          // Colon delimiter, e.g. "dog: madra" or "dog: madra: MADR-RA".
+          const colon = line.split(/\s*:\s*/);
+          if (colon.length === 2 || colon.length === 3) parts = colon;
         }
         if (!parts) {
           // Spaced hyphen only, so "t-athair" and respellings survive intact.
